@@ -1,0 +1,29 @@
+{
+  "odom_frame": "odom",
+  "base_frame": "base_link",
+  "laser_frame": "laser_link",
+
+  "odom_to_base_tf": [[0.0,0.0], [0.0]],
+  "base_to_laser_tf": [[0.05, 0.0], [0.0]],
+
+  "deterministic": true,
+
+  "odometry_sigma": [[0.0, 0.0, 0.0],
+                     [0.0, 0.0, 0.0],
+                     [0.0, 0.0, 0.0]],
+
+  "num_rays": 1,
+  "start_ray": 0.0,
+  "end_ray": 0.0,
+
+  "max_range": 20.0,
+
+  "measurement_sigma": [[0.0, 0.0],
+                        [0.0, 0.0]],
+
+  "start_pose": [[0.0, 0.0], [0.0]],
+
+  "move_commands": [
+    {"type": "pose", "params": [[0.0, 0.0], 0.7853981634]}
+  ]
+}
