@@ -126,7 +126,6 @@ class MapSimulator2D:
             "base_frame":  {"def": "base_link", "desc": "Base TF Frame"},
             "laser_frame": {"def": "base_link", "desc": "Laser TF Frame"},
 
-            "odom_to_base_tf" : {"def": [[0, 0], 0], "desc": "Odometry to Base Transform"},
             "base_to_laser_tf": {"def": [[0, 0], 0], "desc": "Base to Laser Transform"},
 
             "scan_topic": {"def": "base_scan", "desc": "ROS Topic for scan messages"},
