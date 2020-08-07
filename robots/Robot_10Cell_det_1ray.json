@@ -1,0 +1,10 @@
+{
+  "include": [
+    "Common.json",
+    "Map_10Cell.json",
+    "Moves_10Cell.json",
+    "Sensor_1Ray.json"
+  ],
+
+  "deterministic": true
+}

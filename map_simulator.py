@@ -20,6 +20,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 
+from collections import deque
+
 # Project Libraries
 from geometry import Line, Polygon, rotate2d
 
@@ -28,33 +30,68 @@ def set_dict_param(in_dict, self_dict, key, param_name, default):
     if key in in_dict:
         self_dict[key] = in_dict[key]
     else:
-        rospy.logwarn("No {} defined in config file. Using default value: '{}'.".format(param_name, default))
+        rospy.logwarn("{} undefined in config file. Using default value: '{}. Help: {}'.".format(key, default, param_name))
         self_dict[key] = default
+
+
+def import_json(in_file, include_path=[], config={}, includes=deque(), included=set([])):
+
+    imported = False
+
+    for path in include_path:
+        in_path = path + os.path.sep + in_file
+        in_path = os.path.expandvars(in_path)
+        in_path = os.path.normpath(in_path)
+
+        if os.path.isfile(in_path):
+            try:
+                with open(in_path, "r") as f:
+                    text = f.read()
+                    file_config = json.loads(text)
+                    included.add(in_file)
+            except (IOError, ValueError):
+                rospy.logwarn("Couldn't open %s", in_path)
+            else:
+                rospy.loginfo("Loaded file %s", in_path)
+                imported = True
+                break
+
+    if not imported:
+        rospy.logerr("Couldn't open %s in any of the search paths: %s", in_file, ", ".join(include_path))
+        exit(-1)
+
+    if "include" in file_config:
+        include_list = file_config["include"]
+        include_list.reverse()
+        includes.extendleft(include_list)
+        file_config.pop("include")
+
+    tmp_config = config.copy()
+
+    while includes:
+        tmp_file = includes.popleft()
+        if tmp_file not in included:
+            inc_config = import_json(tmp_file,include_path, config, includes, included)
+            tmp_config.update(inc_config)
+
+    tmp_config.update(file_config)
+
+    return tmp_config
 
 
 class MapSimulator2D:
 
-    def __init__(self, map_file, robot_file):
-        map_config = {}
-        in_path = ""
+    def __init__(self, in_file, include_path):
 
-        try:
-            in_path = os.path.expanduser(map_file)
-            with open(in_path, "r") as f:
-                text = f.read()
-                map_config = json.loads(text)
+        include_path = include_path.split(os.pathsep)
 
-        except (IOError, ValueError):
-            rospy.logerr("Couldn't open %", map_file)
-            exit(-1)
-
-        rospy.loginfo("Reading data from : %s", in_path)
+        config = import_json(in_file, include_path)
 
         # Map Obstacle Parsing
         obstacles = []
 
         try:
-            config_obstacles = map_config['obstacles']
+            config_obstacles = config['obstacles']
 
         except KeyError:
             rospy.logwarn("No obstacles defined in map file")
@@ -82,60 +119,52 @@ class MapSimulator2D:
 
         self._obstacles = obstacles
 
-        config = {}
-
-        try:
-            in_path = os.path.expanduser(robot_file)
-            with open(in_path, "r") as f:
-                text = f.read()
-                config = json.loads(text)
-
-        except (IOError, ValueError):
-            rospy.logerr("Couldn't open %", robot_file)
-            exit(-1)
-
-        rospy.loginfo("Reading data from : %s", in_path)
-
         self._params = {}
 
-        # Transform Parameters
-        set_dict_param(config, self._params, 'odom_frame', 'Odometry TF Frame', 'odom')
-        set_dict_param(config, self._params, 'base_frame', 'Base TF Frame', 'base_link')
-        set_dict_param(config, self._params, 'laser_frame', 'Laser TF Frame', 'base_link')
+        defaults = {
+            "odom_frame":  {"def": 'odom',      "desc": 'Odometry TF Frame'},
+            "base_frame":  {"def": "base_link", "desc": "Base TF Frame"},
+            "laser_frame": {"def": "base_link", "desc": "Laser TF Frame"},
 
-        set_dict_param(config, self._params, 'odom_to_base_tf', 'Odometry to Base Transform', [[0, 0], 0])
-        set_dict_param(config, self._params, 'base_to_laser_tf', 'Base to Laser Transform', [[0, 0], 0])
+            "odom_to_base_tf" : {"def": [[0, 0], 0], "desc": "Odometry to Base Transform"},
+            "base_to_laser_tf": {"def": [[0, 0], 0], "desc": "Base to Laser Transform"},
 
-        set_dict_param(config, self._params, 'scan_topic', 'ROS Topic for scan messages', 'base_scan')
+            "scan_topic": {"def": "base_scan", "desc": "ROS Topic for scan messages"},
+
+            "deterministic":     {"def": False,           "desc": "Deterministic process"},
+            "odometry_sigma":    {"def": [[0., 0., 0.],
+                                          [0., 0., 0.],
+                                          [0., 0., 0.]], "desc": "Odometry Covariance Matrix (3x3)"},
+            "measurement_sigma": {"def": [[0., 0.],
+                                          [0., 0.]],     "desc": "Measurement Covariance Matrix (2x2)"},
+
+            "num_rays":  {"def": 180,         "desc": "Number of Sensor beams per scan"},
+            "start_ray": {"def": - np.pi / 2, "desc": "Starting scan angle (in Radians)"},
+            "end_ray":   {"def":   np.pi / 2, "desc": "End scan angle (in Radians)"},
+            "max_range": {"def": 20,          "desc": "Laser Scanner Max. Range (in m)"},
+
+            "meas_per_move": {"def": 5, "desc": "Number of measurements per move command"},
+
+            "initial_timestamp": {"def": None, "desc": "Initial Time Stamp"},
+
+            "move_time_interval": {"def": 1000.0, "desc": "Time (in ms) that a movement command takes"},
+            "scan_time_interval": {"def":   50.0, "desc": "Time (in ms) that a measurement command takes"},
+
+        }
+
+        # Parse Parameters
+        for param, values in defaults.items():
+            set_dict_param(config, self._params, param, values['desc'], values['def'])
 
         # Uncertainty Parameters
-        set_dict_param(config, self._params, 'deterministic', 'Deterministic process', False)
-
-        set_dict_param(config, self._params, 'odometry_sigma', 'Odometry Covariance Matrix', [[0, 0, 0],
-                                                                                              [0, 0, 0],
-                                                                                              [0, 0, 0]])
         self._params['odometry_sigma'] = np.array(self._params['odometry_sigma'])
-
-        set_dict_param(config, self._params, 'measurement_sigma', 'Measurement Covariance Matrix', [[0, 0],
-                                                                                                    [0, 0]])
         self._params['measurement_sigma'] = np.array(self._params['measurement_sigma'])
 
-        # Scan Parameters
-        set_dict_param(config, self._params, 'num_rays', 'Number of Sensor beams per scan', 180)
-        set_dict_param(config, self._params, 'start_ray', 'Starting scan angle (in Radians)', - np.pi / 2)
-        set_dict_param(config, self._params, 'end_ray', 'End scan angle (in Radians)', - np.pi / 2)
-        set_dict_param(config, self._params, 'max_range', 'Laser Scanner Max. Range (in m)', 20)
-
-        set_dict_param(config, self._params, 'meas_per_move', 'Number of measurements per move command', 5)
-
         # Timestamp parameters
-        set_dict_param(config, self._params, 'initial_timestamp', 'Initial Time Stamp', None)
         if self._params['initial_timestamp'] is None:
             self._current_time = rospy.Time.from_sec(time())
         else:
             self._current_time = rospy.Time(int(self._params['initial_timestamp']))
-        set_dict_param(config, self._params, 'move_time_interval', 'Time in ms that a movement command takes', 1000.0)
-        set_dict_param(config, self._params, 'scan_time_interval', 'Time (in ms) that a measurement command takes', 50.0)
 
         self._moves = []
 
@@ -198,7 +227,7 @@ class MapSimulator2D:
             self._add_tf_msg(bag)
 
             if display:
-                self._render(axes)
+                self._render(axes, pause=0.5)
 
             measurements, endpoints, hits = self._ray_trace()
 
@@ -224,7 +253,8 @@ class MapSimulator2D:
                         endpoint_noise = endpoint_noise.transpose()
                         noisy_endpoints = endpoints + endpoint_noise
 
-                    self._render(axes, noisy_endpoints, hits)
+                    self._render(axes, noisy_endpoints, hits, pause=0.35)
+                    self._render(axes, pause=0.1)
 
         bag.close()
 
@@ -356,11 +386,7 @@ class MapSimulator2D:
         bag.write("/tf", tf2_msg, self._current_time)
 
         self._tf_msg_seq += 1
-        secs = self._params['move_time_interval']
-        nsecs = secs
-        secs = int(secs / 1000)
-        nsecs = int((nsecs - 1000 * secs) * 1000)
-        self._current_time += rospy.Duration(secs, nsecs)
+        self._increment_time(self._params['move_time_interval'])
 
     def _add_scan_msg(self, bag, measurements):
 
@@ -386,10 +412,14 @@ class MapSimulator2D:
         bag.write(self._params['scan_topic'], meas_msg, meas_msg.header.stamp)
 
         self._laser_msg_seq += 1
-        secs = self._params['scan_time_interval']
+        self._increment_time(self._params['scan_time_interval'])
+
+    def _increment_time(self, ms):
+        secs = ms
         nsecs = secs
-        secs = int(secs/1000)
-        nsecs = int((nsecs - 1000 * secs) * 1000)
+        secs = int(secs / 1000)
+        nsecs = int((nsecs - 1000 * secs) * 1e6)
+
         self._current_time += rospy.Duration(secs, nsecs)
 
     def _draw_map(self, ax):
@@ -425,7 +455,7 @@ class MapSimulator2D:
             else:
                 ax.plot(ray[0], ray[1], 'tab:red', dashes=[4, 1], linewidth=0.5)
 
-    def _render(self, ax, beam_endpoints=None, hits=None):
+    def _render(self, ax, beam_endpoints=None, hits=None, pause=0.25):
         """
         Renders a graphical view of the map, the current state of the robot and the measurements using Matplotlib
 
@@ -457,7 +487,7 @@ class MapSimulator2D:
         plt.draw()
         plt.pause(0.0001)
 
-        sleep(0.5)
+        sleep(pause)
 
 
 if __name__ == '__main__':
@@ -467,13 +497,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Generate a ROSbag file from a simulated robot trajectory.")
 
-    parser.add_argument('map_file', action='store', help='Input JSON map file', type=str)
     parser.add_argument('robot_file', action='store', help='Input JSON robot config file', type=str)
     parser.add_argument('rosbag_file', action='store', help='Output ROSbag file', type=str)
 
     parser.add_argument('-p', '--preview', action='store_true')
+    parser.add_argument('-i', '--include', action='store', help='Search paths for the input and include files separated by colons (:)', type=str, default='.:robots:maps')
 
     args = parser.parse_args()
 
-    simulator = MapSimulator2D(args.map_file, args.robot_file)
+    simulator = MapSimulator2D(args.robot_file, args.include)
     simulator.convert(args.rosbag_file, display=args.preview)

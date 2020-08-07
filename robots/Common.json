@@ -8,15 +8,9 @@
   "odom_to_base_tf": [[0.0,0.0], [0.0]],
   "base_to_laser_tf": [[0.05, 0.0], [0]],
 
-  "deterministic": false,
-
   "odometry_sigma": [[0.01, 0.0, 0.0],
                      [0.0, 0.01, 0.0],
                      [0.0, 0.0, 0.1]],
-
-  "num_rays": 180,
-  "start_ray": -3.141592,
-  "end_ray": 3.141592,
 
   "max_range": 20.0,
 
@@ -27,12 +21,7 @@
 
   "start_pose": [[0.5, 0.5], [0.0]],
 
-  "move_commands": [
-    {"type": "pose", "params": [[1.5, 0.5], 0]},
-    {"type": "pose", "params": [[2.5, 0.5], 0]},
-    {"type": "pose", "params": [[3.5, 0.5], 0]},
-    {"type": "pose", "params": [[4.5, 0.5], 0]},
-    {"type": "pose", "params": [[5.5, 0.5], 0]},
-    {"type": "pose", "params": [[6.5, 0.5], 0]}
-  ]
+  "scan_time_interval" : 50.0,
+  "move_time_interval" : 1000.0,
+  "initial_timestamp" : null
 }
