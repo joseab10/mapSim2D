@@ -240,6 +240,7 @@ class MapSimulator2D:
                     noisy_meas = measurements + meas_noise
 
                 self._add_scan_msg(bag, noisy_meas)
+                self._add_tf_msg(bag, update_laser_tf=True)
 
                 if display:
                     if self._params['deterministic']:
@@ -280,6 +281,7 @@ class MapSimulator2D:
 
         # Recompute sensor pose from new robot pose
         self._compute_sensor_pose()
+        self._increment_time(self._params['move_time_interval'])
 
     def _compute_sensor_pose(self):
         tf_trans = np.array(self._params['base_to_laser_tf'][0])
@@ -385,7 +387,6 @@ class MapSimulator2D:
         bag.write("/tf", tf2_msg, self._current_time)
 
         self._tf_msg_seq += 1
-        self._increment_time(self._params['move_time_interval'])
 
     def _add_scan_msg(self, bag, measurements):
 
