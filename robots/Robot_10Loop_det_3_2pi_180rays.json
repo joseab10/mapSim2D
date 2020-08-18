@@ -1,0 +1,10 @@
+{
+  "include": [
+    "Common.json",
+    "Map_10Loop.json",
+    "Moves_10Loop.json",
+    "Sensor_180Ray_3_2pi.json"
+  ],
+
+  "deterministic": true
+}
