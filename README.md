@@ -7,23 +7,33 @@ Python script for generating odometry and measurement datasets to test SLAM Algo
 In a ROS system with `roscore` running:
 
 ```commandline
-python2.7 map_simulator.py [-p] [-i <include_path>] [-h] <input_file> <output_file>
+python2.7 map_simulator.py [-p] [-s <search_paths>] [-h] -i <input_file> [-o <output_file>] [<param_name>:<param_value>]...
 ```
 
 ### Command Arguments
 #### Positional Arguments
  * ***`<input_file>`***: (String)<br/>
  Path to a JSON file containing the desired map, robot movement commands and parameters.
- * ***`<output_file>`***: (String)<br/>
- Path and filename where the output ROSBag file is to be saved.
 
 #### Optional Arguments
+ * ***`<output_file>`***: (Optional, String)<br/>
+ Path and filename where the output ROSBag file is to be saved. If none is provided, only the visualization will be run, without generating a ROSBag.
  * ***`-p`***, ***`--preview`***: (Optional)<br/>
  Display a step-by-step imulation using MatPlotLib.
- * ***`-i <include_path>`***, ***`--include <include_path>`***: (Optional, String) *[Default: ".:robots:maps"]*<br/>
+ * ***`-s <paths>`***, ***`--search_paths <paths>`***: (Optional, String) *[Default: ".:robots:maps"]*<br/>
  Search paths for input and include files, separated by colons :.
  * ***`-h`***, ***`--help`***: (Optional)<br/>
  Display usage help.
+ 
+ #### Parameter Override
+ Any parameter defined in the following section can be defined from the command line as well, and not just from the json files.
+ Parameters entered through the command line will override any values previously defined in the json files.
+ To enter a parameter, its name and value must be entered separated by a colon-equal sign and using spaces between different parameters.
+ E.g.:<br/>
+ ```
+python2.7 map_simulator.py ... meas_per_move:=1 odom_frame:=odom_combined ...
+```
+For more information on the possible parameters, please review the next section.
  
  ## Parameters
  The JSON input files can define the following parameters.
@@ -148,6 +158,18 @@ Defines the exact position and orientation of the robot at a given time step.
 {"type": "pose", "params": [[1.5, 0.5], 0.0]}
 ```
 
+##### Pose
+Defines the desired position and orientation of the robot at a given time step.
+From them, an initial rotation, a translation and a final rotation will be computed with respect to the previous desired pose.
+
+###### Arguments
+ * **params**: (Array) 2D Position and orientation [[x, y], θ]
+
+###### Example
+```json
+{"type": "odometry", "params": [[1.5, 0.5], 0.0]}
+```
+
 
 ### Measurements
 
@@ -188,8 +210,8 @@ E.g.: `"end_ray": 3.141592`
 When true, then the ground truth positions and measurements will be displayed and saved to the ROSBag.
 Otherwise, zero-mean gaussian noise will be added to the odometry and sensor data according to the following covariances. 
 
-* **odometry_sigma**: (3x3 Matrix) *[Default: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.]] ]*<br/>
-Covariance matrix defining the uncertainty in the robot's movements.<br/>
+* **Pose_sigma**: (3x3 Matrix) *[Default: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.]] ]*<br/>
+Covariance matrix defining the uncertainty in the robot's pose (Only used for *pose*-type movements).<br/>
     ```
           ⎛ σxx σxy σxθ ⎞
       Σ = ⎜ σyx σyy σyθ ⎟
@@ -197,11 +219,20 @@ Covariance matrix defining the uncertainty in the robot's movements.<br/>
     ```
     E.g.:
     ```json
-    "odometry_sigma": [[0.01, 0.00, 0.0],
-                       [0.00, 0.01, 0.0],
-                       [0.00, 0.00, 0.1]],
+    "pose_sigma": [[0.01, 0.00, 0.0],
+                   [0.00, 0.01, 0.0],
+                   [0.00, 0.00, 0.1]],
     ```
- 
+* **odometry_alpha**: (4 Vector) *[Default: [0.0, 0.0, 0.0, 0.0] ]*<br/>
+Weight parameters for odometry-based movements consisting of rotation,translation,rotation.<br/>
+    ```
+      α = ( α1 α2 α3 α4 )
+    ```
+    E.g.:
+    ```json
+    "odometry_alpha": [0.001, 0.01, 0.01, 0.001],
+    ```
+  
 * **measurement_sigma**: (2x2 Matrix) *[Default: [[0.0, 0.0], [0.0, 0.0]]*<br/>
 Covariance matrix defining the uncertainty in the robot's measurement bearings and ranges.<br/>
     ```
@@ -214,6 +245,14 @@ Covariance matrix defining the uncertainty in the robot's measurement bearings a
     "measurement_sigma": [[0.010, 0.000],
                           [0.000, 0.002]]
     ```
+
+### Visualization
+
+* **render_move_pause**: (float) *[Default: 0.5]*<br/>
+Time in seconds that the simulation will pause after displaying a movement.
+
+* **render_sense_pause**: (float) *[Default: 0.35]*<br/>
+Time in seconds that the simulation will pause after displaying a measurement.
 
 
 ---

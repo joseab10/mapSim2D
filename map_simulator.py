@@ -33,10 +33,18 @@ def set_dict_param(in_dict, self_dict, key, param_name, default):
         rospy.logwarn("{} undefined in config file. Using default value: '{}. Help: {}'.".format(key, default, param_name))
         self_dict[key] = default
 
+def import_json(in_file, include_path=None, config=None, includes=None, included=None):
 
-def import_json(in_file, include_path=[], config={}, includes=deque(), included=set([])):
+    if config is None:
+        config = {}
+    if include_path is None:
+        include_path = []
+    if includes is None:
+        includes = deque()
+    if included is None:
+        included = set([])
 
-    imported = False
+    import_successful = False
 
     for path in include_path:
         in_path = path + os.path.sep + in_file
@@ -53,10 +61,10 @@ def import_json(in_file, include_path=[], config={}, includes=deque(), included=
                 rospy.logwarn("Couldn't open %s", in_path)
             else:
                 rospy.loginfo("Loaded file %s", in_path)
-                imported = True
+                import_successful = True
                 break
 
-    if not imported:
+    if not import_successful:
         rospy.logerr("Couldn't open %s in any of the search paths: %s", in_file, ", ".join(include_path))
         exit(-1)
 
@@ -81,11 +89,15 @@ def import_json(in_file, include_path=[], config={}, includes=deque(), included=
 
 class MapSimulator2D:
 
-    def __init__(self, in_file, include_path):
+    def __init__(self, in_file, include_path, override_params=None):
 
         include_path = include_path.split(os.pathsep)
 
         config = import_json(in_file, include_path)
+
+        if override_params is not None:
+            override_params = json.loads(override_params)
+            config.update(override_params)
 
         # Map Obstacle Parsing
         obstacles = []
@@ -150,10 +162,13 @@ class MapSimulator2D:
 
             "scan_topic": {"def": "base_scan", "desc": "ROS Topic for scan messages"},
 
-            "deterministic":     {"def": False,           "desc": "Deterministic process"},
-            "odometry_sigma":    {"def": [[0., 0., 0.],
-                                          [0., 0., 0.],
-                                          [0., 0., 0.]], "desc": "Odometry Covariance Matrix (3x3)"},
+            "deterministic": {"def": False,           "desc": "Deterministic process"},
+            "pose_sigma": {"def": [[0., 0., 0.],
+                                   [0., 0., 0.],
+                                   [0., 0., 0.]], "desc": "Movement by Pose Covariance Matrix (3x3)"},
+
+            "odometry_alpha": {"def": [0., 0., 0., 0.], "desc": "Movement by Odometry Covariance Matrix (3x3)"},
+
             "measurement_sigma": {"def": [[0., 0.],
                                           [0., 0.]],     "desc": "Measurement Covariance Matrix (2x2)"},
 
@@ -169,6 +184,8 @@ class MapSimulator2D:
             "move_time_interval": {"def": 1000.0, "desc": "Time (in ms) that a movement command takes"},
             "scan_time_interval": {"def":   50.0, "desc": "Time (in ms) that a measurement command takes"},
 
+            "render_move_pause": {"def": 0.5, "desc": "Time (in s) that the simulation pauses after each move action"},
+            "render_sense_pause": {"def": 0.35, "desc": "Time (in s) that the simulation pauses after each sensing action"},
         }
 
         # Parse Parameters
@@ -176,7 +193,8 @@ class MapSimulator2D:
             set_dict_param(config, self._params, param, values['desc'], values['def'])
 
         # Uncertainty Parameters
-        self._params['odometry_sigma'] = np.array(self._params['odometry_sigma'])
+        self._params['pose_sigma'] = np.array(self._params['pose_sigma'])
+        self._params['odometry_alpha'] = np.array(self._params['odometry_alpha'])
         self._params['measurement_sigma'] = np.array(self._params['measurement_sigma'])
 
         # Timestamp parameters
@@ -220,14 +238,18 @@ class MapSimulator2D:
         self._orientation = np.zeros(1)
         self._sensor_position = np.zeros(2)
         self._sensor_orientation = np.zeros(1)
+        self._ideal_position = np.zeros(2)
+        self._ideal_orientation = np.zeros(1)
 
         try:
             self._position = np.array(config['start_pose'][0])
+            self._ideal_position = np.copy(self._position)
         except KeyError:
             rospy.logwarn("No initial position defined in config file. Starting at (0, 0)")
 
         try:
             self._orientation = np.array(config['start_pose'][1])
+            self._ideal_orientation = np.copy(self._orientation)
         except KeyError:
             rospy.logwarn("No initial orientation defined in config file. Starting with theta=0")
 
@@ -235,22 +257,28 @@ class MapSimulator2D:
 
     def convert(self, output_file, display=False):
 
+        if output_file is None and not display:
+            return
+
         bag = None
         out_path = ""
 
-        try:
-            out_path = os.path.expanduser(output_file)
-            bag = rosbag.Bag(out_path, "w")
+        if output_file is not None:
+            try:
+                out_path = os.path.expanduser(output_file)
+                bag = rosbag.Bag(out_path, "w")
 
-        except (IOError, ValueError):
-            rospy.logerr("Couldn't open %", output_file)
-            exit(-1)
+            except (IOError, ValueError):
+                rospy.logerr("Couldn't open %", output_file)
+                exit(-1)
 
-        rospy.loginfo("Writing rosbag to : %s", out_path)
+            rospy.loginfo("Writing rosbag to : %s", out_path)
 
         axes = None
 
-        self._add_tf_msg(bag, update_laser_tf=True)
+        self._add_tf_msg(bag)
+        self._add_tf_msg(bag, real_pose=True)
+
 
         if display:
             plt.ion()
@@ -258,15 +286,17 @@ class MapSimulator2D:
             axes = figure1.add_subplot(111)
             figure1.show()
 
-            self._render(axes)
+            self._render(axes, pause=self._params['render_move_pause'])
 
         for move in self._moves:
 
             self._move(move)
+
             self._add_tf_msg(bag)
+            self._add_tf_msg(bag, real_pose=True)
 
             if display:
-                self._render(axes, pause=0.5)
+                self._render(axes, pause=self._params['render_move_pause'])
 
             for i in range(int(self._params['meas_per_move'])):
                 measurements, endpoints, hits = self._ray_trace()
@@ -280,7 +310,8 @@ class MapSimulator2D:
                     noisy_meas = measurements + meas_noise
 
                 self._add_scan_msg(bag, noisy_meas)
-                self._add_tf_msg(bag, update_laser_tf=True)
+                self._add_tf_msg(bag)
+                self._add_tf_msg(bag, real_pose=True)
 
                 if display:
                     if self._params['deterministic']:
@@ -293,28 +324,65 @@ class MapSimulator2D:
                         endpoint_noise = endpoint_noise.transpose()
                         noisy_endpoints = endpoints + endpoint_noise
 
-                    self._render(axes, noisy_endpoints, hits, pause=0.35)
-                    self._render(axes, pause=0.1)
+                    self._render(axes, noisy_endpoints, hits, pause=self._params['render_sense_pause'])
+                    self._render(axes, pause=self._params['render_move_pause'] - self._params['render_sense_pause'])
 
-        bag.close()
+        if bag is not None:
+            bag.close()
 
-        rospy.loginfo("Finished simulation and saved to rosbag")
+            rospy.loginfo("Finished simulation and saved to rosbag")
 
     def _move(self, move_cmd):
         old_pos = np.concatenate((self._position, self._orientation))
 
         if move_cmd['type'] == 'pose':
+
             if self._params['deterministic']:
                 noise = np.zeros_like(old_pos)
             else:
-                noise = np.random.multivariate_normal(np.zeros_like(old_pos), self._params['odometry_sigma'])
+                noise = np.random.multivariate_normal(np.zeros_like(old_pos), self._params['pose_sigma'])
 
-            self._position = np.array(move_cmd['params'][0] + noise[0:1]).flatten()
-            self._orientation = np.array(move_cmd['params'][1] + noise[2]).flatten()
+            target_position = np.array(move_cmd['params'][0])
+            target_orientation = np.array(move_cmd['params'][1])
+
+            self._position = np.array(target_position + noise[0:1]).flatten()
+            self._orientation = np.array(target_orientation + noise[2]).flatten()
+
+            self._ideal_position = target_position
+            self._ideal_orientation = target_orientation
 
         elif move_cmd['type'] == "odom":
-            # TODO
-            pass
+
+            target_position = np.array(move_cmd['params'][0])
+            target_orientation = np.array(move_cmd['params'][1])
+
+            # Compute delta in initial rotation, translation, final rotation
+            delta_trans = target_position - self._ideal_position
+            delta_rot1 = np.arctan2(delta_trans[1], delta_trans[0]) - self._ideal_orientation
+            delta_rot2 = target_orientation - self._ideal_orientation - delta_rot1
+            delta_trans = np.matmul(delta_trans, delta_trans)
+            delta_trans = np.sqrt(delta_trans)
+
+            delta_rot1_hat = delta_rot1
+            delta_trans_hat = delta_trans
+            delta_rot2_hat = delta_rot2
+            # Add Noise
+            if not self._params['deterministic']:
+                alpha = self._params['odometry_alpha']
+                delta_rot1_hat += np.random.normal(0, alpha[0] * np.abs(delta_rot1)
+                                                    + alpha[1] * delta_trans)
+                delta_trans_hat += np.random.normal(0, alpha[2] * delta_trans
+                                                     + alpha[3] * (np.abs(delta_rot1) + np.abs(delta_rot2)))
+                delta_rot2_hat += np.random.normal(0, alpha[0] * np.abs(delta_rot2)
+                                                    + alpha[1] * delta_trans)
+
+            theta1 = self._orientation + delta_rot1_hat
+            self._position = self._position + (delta_trans_hat * np.array([np.cos(theta1), np.sin(theta1)]).flatten())
+            self._orientation = theta1 + delta_rot2_hat
+
+            self._ideal_position = target_position
+            self._ideal_orientation = target_orientation
+
         elif move_cmd['type'] == "velocity":
             # TODO
             pass
@@ -383,18 +451,54 @@ class MapSimulator2D:
 
         return bearing_ranges, endpoints, hits
 
-    def _add_tf_msg(self, bag, update_laser_tf=True):
-        tf_odom_robot_msg = TransformStamped()
+    def _add_tf_msg(self, bag, real_pose=False, update_laser_tf=True):
+
+        if bag is None:
+            return
 
         tf2_msg = TFMessage()
 
+        if real_pose:
+            posx = float(self._position[0])
+            posy = float(self._position[1])
+            theta = float(self._orientation)
+            frame_prefix = "/GT/"
+
+            tf_map_odom_msg = TransformStamped()
+
+            tf_map_odom_msg.header.stamp = self._current_time
+            tf_map_odom_msg.header.seq = self._tf_msg_seq
+            tf_map_odom_msg.header.frame_id = "/map"
+            tf_map_odom_msg.child_frame_id = frame_prefix + self._params['odom_frame']
+
+            position = Point(0, 0, 0)
+            quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, 0)
+            tf_map_odom_msg.transform.translation = position
+            tf_map_odom_msg.transform.rotation.x = quaternion[0]
+            tf_map_odom_msg.transform.rotation.y = quaternion[1]
+            tf_map_odom_msg.transform.rotation.z = quaternion[2]
+            tf_map_odom_msg.transform.rotation.w = quaternion[3]
+
+            tf2_msg.transforms.append(tf_map_odom_msg)
+
+        else:
+            posx = float(self._ideal_position[0])
+            posy = float(self._ideal_position[1])
+            theta = float(self._ideal_orientation)
+            frame_prefix = ""
+
+
+
+
+        tf_odom_robot_msg = TransformStamped()
+
         tf_odom_robot_msg.header.stamp = self._current_time
         tf_odom_robot_msg.header.seq = self._tf_msg_seq
-        tf_odom_robot_msg.header.frame_id = self._params['odom_frame']
-        tf_odom_robot_msg.child_frame_id = self._params['base_frame']
+        tf_odom_robot_msg.header.frame_id = frame_prefix + self._params['odom_frame']
+        tf_odom_robot_msg.child_frame_id = frame_prefix + self._params['base_frame']
 
-        position = Point(float(self._position[0]), float(self._position[1]), 0.0)
-        quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, float(self._orientation))
+        position = Point(posx, posy, 0.0)
+        quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, theta)
 
         tf_odom_robot_msg.transform.translation = position
         tf_odom_robot_msg.transform.rotation.x = quaternion[0]
@@ -409,8 +513,8 @@ class MapSimulator2D:
 
             tf_laser_robot_msg.header.stamp = self._current_time
             tf_laser_robot_msg.header.seq = self._tf_msg_seq
-            tf_laser_robot_msg.header.frame_id = self._params['base_frame']
-            tf_laser_robot_msg.child_frame_id = self._params['laser_frame']
+            tf_laser_robot_msg.header.frame_id = frame_prefix + self._params['base_frame']
+            tf_laser_robot_msg.child_frame_id = frame_prefix + self._params['laser_frame']
 
             position = Point(float(self._params['base_to_laser_tf'][0][0]),
                              float(self._params['base_to_laser_tf'][0][1]), 0.0)
@@ -429,6 +533,9 @@ class MapSimulator2D:
         self._tf_msg_seq += 1
 
     def _add_scan_msg(self, bag, measurements):
+
+        if bag is None:
+            return
 
         meas_msg = LaserScan()
 
@@ -543,13 +650,25 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Generate a ROSbag file from a simulated robot trajectory.")
 
-    parser.add_argument('robot_file', action='store', help='Input JSON robot config file', type=str)
-    parser.add_argument('rosbag_file', action='store', help='Output ROSbag file', type=str)
+    parser.add_argument('-i', '--input', action='store', help='Input JSON robot config file', type=str)
+    parser.add_argument('-o', '--output', action='store', help='Output ROSbag file', type=str, required=False)
 
     parser.add_argument('-p', '--preview', action='store_true')
-    parser.add_argument('-i', '--include', action='store', help='Search paths for the input and include files separated by colons (:)', type=str, default='.:robots:maps')
+    parser.add_argument('-s', '--search_paths', action='store', help='Search paths for the input and include files separated by colons (:)', type=str, default='.:robots:maps')
+    #parser.add_argument('extra_params', nargs='*')
 
-    args = parser.parse_args()
+    args, override_args = parser.parse_known_args()
 
-    simulator = MapSimulator2D(args.robot_file, args.include)
-    simulator.convert(args.rosbag_file, display=args.preview)
+    override_str = None
+
+    if len(override_args) > 0:
+        override_str = '{'
+        for arg in override_args:
+            arg_keyval = arg.split(":=")
+            override_str += '"' + str(arg_keyval[0]) + '":' + str(arg_keyval[1]) + ','
+
+        override_str = override_str[0:-1] + "}"
+
+
+    simulator = MapSimulator2D(args.input, args.search_paths, override_params=override_str)
+    simulator.convert(args.output, display=args.preview)
