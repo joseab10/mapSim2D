@@ -12,11 +12,11 @@ python2.7 map_simulator.py [-p] [-s <search_paths>] [-h] -i <input_file> [-o <ou
 
 ### Command Arguments
 #### Positional Arguments
- * ***`<input_file>`***: (String)<br/>
+ * ***`-i <input_file>`***, ***`--input <input_file>`***: (String)<br/>
  Path to a JSON file containing the desired map, robot movement commands and parameters.
 
 #### Optional Arguments
- * ***`<output_file>`***: (Optional, String)<br/>
+ * ***`-o <output_file>`***, ***`--output <output_file>`***: (Optional, String)<br/>
  Path and filename where the output ROSBag file is to be saved. If none is provided, only the visualization will be run, without generating a ROSBag.
  * ***`-p`***, ***`--preview`***: (Optional)<br/>
  Display a step-by-step imulation using MatPlotLib.
