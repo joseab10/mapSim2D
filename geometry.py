@@ -104,11 +104,13 @@ class Polygon:
     No need to duplicate the first vertex in order to close it.
     """
 
-    def __init__(self, vertices=None, compute_bounding_box=True):
+    def __init__(self, vertices=None, compute_bounding_box=True, opacity=1.0):
 
         self.vertices = None
 
         self.boundingBox = compute_bounding_box
+
+        self.opacity = opacity
 
         self.min = None
         self.max = None
@@ -146,6 +148,14 @@ class Polygon:
         return true
 
     def line_intersects(self, line):
+
+        if self.opacity < 0:
+            return None
+
+        if self.opacity < 1.0:
+            reflection_prob = np.random.uniform(0.0, 1.0)
+            if reflection_prob > self.opacity:
+                return None
 
         # If polygon has more vertices than a rectangle
         if self.vertices.shape[0] > 4:

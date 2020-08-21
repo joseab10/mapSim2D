@@ -97,6 +97,11 @@ class MapSimulator2D:
             rospy.logwarn("No obstacles defined in map file")
             config_obstacles = []
 
+        minx = 0
+        miny = 0
+        maxx = 0
+        maxy = 0
+
         for obstacle in config_obstacles:
             try:
                 obstacle_type = obstacle['type']
@@ -107,9 +112,24 @@ class MapSimulator2D:
             if obstacle_type == "polygon":
                 try:
                     vertices = obstacle['vertices']
-                    obstacles.append(Polygon(vertices))
+                    if "opacity" in obstacle:
+                        opacity = obstacle['opacity']
+                    else :
+                        opacity = 1.0
+                    new_obstacle = Polygon(vertices, opacity=opacity)
+                    obstacles.append(new_obstacle)
+                    # Compute display boundaries
+                    if new_obstacle.min_x < minx:
+                        minx = new_obstacle.min_x
+                    if new_obstacle.max_x > maxx:
+                        maxx = new_obstacle.max_x
+                    if new_obstacle.min_y < miny:
+                        miny = new_obstacle.min_y
+                    if new_obstacle.max_y > maxy:
+                        maxy = new_obstacle.max_y
                 except KeyError:
                     rospy.logwarn("Polygon Obstacle has no vertices defined")
+
 
             # TODO: Define more types of obstacles
             elif obstacle_type == "circle":
@@ -176,6 +196,26 @@ class MapSimulator2D:
         except KeyError:
             rospy.logwarn("No moves defined in config file. Considering only starting position")
 
+        # Take into account robot moves for display box
+        for move in self._moves:
+            pos = move["params"][0]
+            if pos[0] < minx:
+                minx = move[0]
+            if pos[0] > maxx:
+                maxx = move[0]
+            if pos[1] < miny:
+                miny = move[1]
+            if pos[1] > maxy:
+                maxy = move[1]
+
+        # Add a margin of either the max range of the sensor (too large) or just 1m
+        #margin = self._params["max_range"] + 1
+        margin = 1
+        self.min_x = minx - margin
+        self.min_y = miny - margin
+        self.max_x = maxx + margin
+        self.max_y = maxy + margin
+
         self._position = np.zeros(2)
         self._orientation = np.zeros(1)
         self._sensor_position = np.zeros(2)
@@ -228,9 +268,9 @@ class MapSimulator2D:
             if display:
                 self._render(axes, pause=0.5)
 
-            measurements, endpoints, hits = self._ray_trace()
-
             for i in range(int(self._params['meas_per_move'])):
+                measurements, endpoints, hits = self._ray_trace()
+
                 if self._params['deterministic']:
                     noisy_meas = measurements
                     meas_noise = np.zeros(2)
@@ -426,7 +466,7 @@ class MapSimulator2D:
         for obstacle in self._obstacles:
             if isinstance(obstacle, Polygon):
                 vertices = obstacle.vertices.transpose()
-                ax.fill(vertices[0], vertices[1], edgecolor='tab:blue', hatch='////', fill=False)
+                ax.fill(vertices[0], vertices[1], edgecolor='tab:blue', hatch='////', fill=False, alpha = obstacle.opacity)
 
     def _draw_robot(self, ax):
         robot_size = 0.05
@@ -451,9 +491,9 @@ class MapSimulator2D:
             ray = ray.transpose()
 
             if hits[i]:
-                ax.plot(ray[0], ray[1], 'tab:red', marker='.', linewidth=0.5)
+                ax.plot(ray[0], ray[1], 'tab:red', marker='.', linewidth=0.7)
             else:
-                ax.plot(ray[0], ray[1], 'tab:red', dashes=[4, 1], linewidth=0.5)
+                ax.plot(ray[0], ray[1], 'tab:red', marker='1', dashes=[10, 6], linewidth=0.5)
 
     def _render(self, ax, beam_endpoints=None, hits=None, pause=0.25):
         """
@@ -469,11 +509,17 @@ class MapSimulator2D:
 
         ax.clear()
 
+        ax.set_aspect('equal', 'box')
+        ax.set_xlim([self.min_x, self.max_x])
+        ax.set_xbound(self.min_x, self.max_x)
+        ax.set_ylim(self.min_y, self.max_y)
+        ax.set_ybound(self.min_y, self.max_y)
+
+
+
         self._draw_map(ax)
         self._draw_beams(ax, beam_endpoints, hits)
         self._draw_robot(ax)
-
-        ax.set_aspect('equal', 'datalim')
 
         ax.xaxis.set_major_locator(MultipleLocator(1))
         ax.yaxis.set_major_locator(MultipleLocator(1))

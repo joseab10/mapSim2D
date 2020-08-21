@@ -6,7 +6,7 @@ Python script for generating odometry and measurement datasets to test SLAM Algo
 
 In a ROS system with `roscore` running:
 
-```
+```commandline
 python2.7 map_simulator.py [-p] [-i <include_path>] [-h] <input_file> <output_file>
 ```
 
@@ -34,7 +34,7 @@ python2.7 map_simulator.py [-p] [-i <include_path>] [-h] <input_file> <output_fi
   * **include**: *(list of strings) [Default: None]*<br/>
   Parameter files to be included during parsing for reusing parameters between experiments with a more convenient, reduced-typing, smarter approach.<br/>
   E.g.:<br/>
-    ```
+    ```json
     "include": [
         "common.json",
         "map.json",
@@ -46,7 +46,7 @@ The include procedure is done in the following manner:
   * ***recursively*** and in a ***depth-first*** order:<br/>
   If an included file contains *include* statement as well, the files listed are also included,<br/>
      E.g.: Input file contains:
-     ```
+     ```json
      "include": [
          "a.json",
          "b.json",
@@ -54,7 +54,7 @@ The include procedure is done in the following manner:
     ]
      ```
      and file `a.json` contains
-     ```
+     ```json
      "include": [
          "d.json",
          "e.json"
@@ -84,7 +84,7 @@ The include procedure is done in the following manner:
  * **obstacles**: (List of Objects) *[Default: [] (Empty Map)]*<br/>
  A world map is defined as a list of geometric obstacles.<br/>
    E.g.:
-    ```
+    ```json
     "obstacles": [
         {"type": "polygon", "vertices": [[-0.1, 1.0], [10.1, 1.0], [10.1, 1.1], [-0.1, 1.1]]},
         {"type": "circle", "center": [4.0, 0.0], "radius": 10},
@@ -98,10 +98,12 @@ Defined as a set of vertices connected by straight line segments.
 ###### Arguments
  * **vertices**: (Array)<br/>
  List of ordered pairs of 2D points [x, y]. The order is relevant, as the segments of polyline connecting them are constructed between each consecutive pair of points, and between the last and first points.<br/>
+ * **opacity**: (float) *[Default: 1.0]*<br/>
+ Determines the probability with which the obstacle reflects a beam. A value of 1.0 makes the object always reflective, while 0.0 is completely transparent (so why bother defining the polygon in the first place).
  
 ###### Example
-```
-{"type": "polygon", "vertices": [[-0.1, 1.0], [10.1, 1.0], [10.1, 1.1], [-0.1, 1.1]]}
+```json
+{"type": "polygon", "vertices": [[-0.1, 1.0], [10.1, 1.0], [10.1, 1.1], [-0.1, 1.1]], "opacity": 0.5}
 ```
 
 ### Robot Movements
@@ -124,7 +126,7 @@ E.g.: `"move_time_interval": 1000.0`.
 
 * **move_commands**: (List of Objects) *[Default: [] (No movement)]* Determines the position of the robot at every time step, and the total duration of the simulation.
 
-    ```
+    ```json
     "move_commands": [
         {"type": "pose", "params": [[1.5, 0.5], 0.0]},
         {"type": "pose", "params": [[2.5, 0.5], 0.0]},
@@ -142,7 +144,7 @@ Defines the exact position and orientation of the robot at a given time step.
  * **params**: (Array) 2D Position and orientation [[x, y], θ]
 
 ###### Example
-```
+```json
 {"type": "pose", "params": [[1.5, 0.5], 0.0]}
 ```
 
@@ -194,7 +196,7 @@ Covariance matrix defining the uncertainty in the robot's movements.<br/>
           ⎝ σθx σθy σθθ ⎠
     ```
     E.g.:
-    ```
+    ```json
     "odometry_sigma": [[0.01, 0.00, 0.0],
                        [0.00, 0.01, 0.0],
                        [0.00, 0.00, 0.1]],
@@ -208,7 +210,7 @@ Covariance matrix defining the uncertainty in the robot's measurement bearings a
           ⎝ σzφ   σzz ⎠
     ```
     E.g.:
-    ```
+    ```json
     "measurement_sigma": [[0.010, 0.000],
                           [0.000, 0.002]]
     ```
