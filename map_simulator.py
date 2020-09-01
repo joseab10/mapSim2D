@@ -186,6 +186,8 @@ class MapSimulator2D:
 
             "render_move_pause": {"def": 0.5, "desc": "Time (in s) that the simulation pauses after each move action"},
             "render_sense_pause": {"def": 0.35, "desc": "Time (in s) that the simulation pauses after each sensing action"},
+
+            "gt_prefix": {"def": "/GT/", "desc": "Prefix for the ground truth pose and measurement topics"}
         }
 
         # Parse Parameters
@@ -269,7 +271,7 @@ class MapSimulator2D:
                 bag = rosbag.Bag(out_path, "w")
 
             except (IOError, ValueError):
-                rospy.logerr("Couldn't open %", output_file)
+                rospy.logerr("Couldn't open %s", output_file)
                 exit(-1)
 
             rospy.loginfo("Writing rosbag to : %s", out_path)
@@ -277,7 +279,7 @@ class MapSimulator2D:
         axes = None
 
         self._add_tf_msg(bag)
-        self._add_tf_msg(bag, real_pose=True)
+        self._add_tf_msg(bag, ground_truth=True)
 
 
         if display:
@@ -293,7 +295,7 @@ class MapSimulator2D:
             self._move(move)
 
             self._add_tf_msg(bag)
-            self._add_tf_msg(bag, real_pose=True)
+            self._add_tf_msg(bag, ground_truth=True)
 
             if display:
                 self._render(axes, pause=self._params['render_move_pause'])
@@ -310,8 +312,10 @@ class MapSimulator2D:
                     noisy_meas = measurements + meas_noise
 
                 self._add_scan_msg(bag, noisy_meas)
+                self._add_scan_msg(bag, measurements, ground_truth=True)
+
                 self._add_tf_msg(bag)
-                self._add_tf_msg(bag, real_pose=True)
+                self._add_tf_msg(bag, ground_truth=True)
 
                 if display:
                     if self._params['deterministic']:
@@ -451,18 +455,18 @@ class MapSimulator2D:
 
         return bearing_ranges, endpoints, hits
 
-    def _add_tf_msg(self, bag, real_pose=False, update_laser_tf=True):
+    def _add_tf_msg(self, bag, ground_truth=False, update_laser_tf=True):
 
         if bag is None:
             return
 
         tf2_msg = TFMessage()
 
-        if real_pose:
+        if ground_truth:
             posx = float(self._position[0])
             posy = float(self._position[1])
             theta = float(self._orientation)
-            frame_prefix = "/GT/"
+            frame_prefix = self._params["gt_prefix"]
 
             tf_map_odom_msg = TransformStamped()
 
@@ -486,9 +490,6 @@ class MapSimulator2D:
             posy = float(self._ideal_position[1])
             theta = float(self._ideal_orientation)
             frame_prefix = ""
-
-
-
 
         tf_odom_robot_msg = TransformStamped()
 
@@ -530,16 +531,22 @@ class MapSimulator2D:
 
         bag.write("/tf", tf2_msg, self._current_time)
 
-        self._tf_msg_seq += 1
+        if not ground_truth:
+            self._tf_msg_seq += 1
 
-    def _add_scan_msg(self, bag, measurements):
+    def _add_scan_msg(self, bag, measurements, ground_truth=False):
 
         if bag is None:
             return
 
+        if ground_truth:
+            topic_prefix = self._params["gt_prefix"]
+        else:
+            topic_prefix = ""
+
         meas_msg = LaserScan()
 
-        meas_msg.header.frame_id = self._params['laser_frame']
+        meas_msg.header.frame_id = topic_prefix + self._params['laser_frame']
         meas_msg.header.stamp = self._current_time
         meas_msg.header.seq = self._laser_msg_seq
 
@@ -556,10 +563,11 @@ class MapSimulator2D:
         meas_msg.ranges = measurements[:, 1]
         meas_msg.intensities = []
 
-        bag.write(self._params['scan_topic'], meas_msg, meas_msg.header.stamp)
+        bag.write(topic_prefix + self._params['scan_topic'], meas_msg, meas_msg.header.stamp)
 
-        self._laser_msg_seq += 1
-        self._increment_time(self._params['scan_time_interval'])
+        if not ground_truth:
+            self._laser_msg_seq += 1
+            self._increment_time(self._params['scan_time_interval'])
 
     def _increment_time(self, ms):
         secs = ms
@@ -655,7 +663,6 @@ if __name__ == '__main__':
 
     parser.add_argument('-p', '--preview', action='store_true')
     parser.add_argument('-s', '--search_paths', action='store', help='Search paths for the input and include files separated by colons (:)', type=str, default='.:robots:maps')
-    #parser.add_argument('extra_params', nargs='*')
 
     args, override_args = parser.parse_known_args()
 

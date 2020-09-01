@@ -17,12 +17,17 @@
 
   "meas_per_move": 3,
 
-  "measurement_sigma": [[0.01, 0.0],
+  "measurement_sigma": [[0.005, 0.0],
                         [0.0, 0.0002908882087]],
 
   "start_pose": [[0.5, 0.5], [0.0]],
 
   "scan_time_interval" : 50.0,
   "move_time_interval" : 1000.0,
-  "initial_timestamp" : null
+  "initial_timestamp" : null,
+
+  "render_move_pause": 0.25,
+  "render_sense_pause": 0.15,
+
+  "gt_prefix": "/GT/"
 }
