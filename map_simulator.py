@@ -30,8 +30,10 @@ def set_dict_param(in_dict, self_dict, key, param_name, default):
     if key in in_dict:
         self_dict[key] = in_dict[key]
     else:
-        rospy.logwarn("{} undefined in config file. Using default value: '{}. Help: {}'.".format(key, default, param_name))
+        rospy.logwarn("{} undefined in config file. Using default value: '{}. Help: {}'.".format(key,
+                                                                                                 default, param_name))
         self_dict[key] = default
+
 
 def import_json(in_file, include_path=None, config=None, includes=None, included=None):
 
@@ -79,7 +81,7 @@ def import_json(in_file, include_path=None, config=None, includes=None, included
     while includes:
         tmp_file = includes.popleft()
         if tmp_file not in included:
-            inc_config = import_json(tmp_file,include_path, config, includes, included)
+            inc_config = import_json(tmp_file, include_path, config, includes, included)
             tmp_config.update(inc_config)
 
     tmp_config.update(file_config)
@@ -126,7 +128,7 @@ class MapSimulator2D:
                     vertices = obstacle['vertices']
                     if "opacity" in obstacle:
                         opacity = obstacle['opacity']
-                    else :
+                    else:
                         opacity = 1.0
                     new_obstacle = Polygon(vertices, opacity=opacity)
                     obstacles.append(new_obstacle)
@@ -141,7 +143,6 @@ class MapSimulator2D:
                         maxy = new_obstacle.max_y
                 except KeyError:
                     rospy.logwarn("Polygon Obstacle has no vertices defined")
-
 
             # TODO: Define more types of obstacles
             elif obstacle_type == "circle":
@@ -181,13 +182,18 @@ class MapSimulator2D:
 
             "initial_timestamp": {"def": None, "desc": "Initial Time Stamp"},
 
-            "move_time_interval": {"def": 1000.0, "desc": "Time (in ms) that a movement command takes"},
-            "scan_time_interval": {"def":   50.0, "desc": "Time (in ms) that a measurement command takes"},
+            "move_time_interval": {"def": 1000.0,
+                                   "desc": "Time (in ms) that a movement command takes"},
+            "scan_time_interval": {"def":   50.0,
+                                   "desc": "Time (in ms) that a measurement command takes"},
 
-            "render_move_pause": {"def": 0.5, "desc": "Time (in s) that the simulation pauses after each move action"},
-            "render_sense_pause": {"def": 0.35, "desc": "Time (in s) that the simulation pauses after each sensing action"},
+            "render_move_pause": {"def": 0.5,
+                                  "desc": "Time (in s) that the simulation pauses after each move action"},
+            "render_sense_pause": {"def": 0.35,
+                                   "desc": "Time (in s) that the simulation pauses after each sensing action"},
 
-            "gt_prefix": {"def": "/GT/", "desc": "Prefix for the ground truth pose and measurement topics"}
+            "gt_prefix": {"def": "/GT/",
+                          "desc": "Prefix for the ground truth pose and measurement topics"}
         }
 
         # Parse Parameters
@@ -229,29 +235,29 @@ class MapSimulator2D:
                 maxy = move[1]
 
         # Add a margin of either the max range of the sensor (too large) or just 1m
-        #margin = self._params["max_range"] + 1
+        # margin = self._params["max_range"] + 1
         margin = 1
         self.min_x = minx - margin
         self.min_y = miny - margin
         self.max_x = maxx + margin
         self.max_y = maxy + margin
 
-        self._position = np.zeros(2)
-        self._orientation = np.zeros(1)
+        self._noisy_position = np.zeros(2)
+        self._noisy_orientation = np.zeros(1)
         self._sensor_position = np.zeros(2)
         self._sensor_orientation = np.zeros(1)
-        self._ideal_position = np.zeros(2)
-        self._ideal_orientation = np.zeros(1)
+        self._real_position = np.zeros(2)
+        self._real_orientation = np.zeros(1)
 
         try:
-            self._position = np.array(config['start_pose'][0])
-            self._ideal_position = np.copy(self._position)
+            self._noisy_position = np.array(config['start_pose'][0])
+            self._real_position = np.copy(self._noisy_position)
         except KeyError:
             rospy.logwarn("No initial position defined in config file. Starting at (0, 0)")
 
         try:
-            self._orientation = np.array(config['start_pose'][1])
-            self._ideal_orientation = np.copy(self._orientation)
+            self._noisy_orientation = np.array(config['start_pose'][1])
+            self._real_orientation = np.copy(self._noisy_orientation)
         except KeyError:
             rospy.logwarn("No initial orientation defined in config file. Starting with theta=0")
 
@@ -280,7 +286,6 @@ class MapSimulator2D:
 
         self._add_tf_msg(bag)
         self._add_tf_msg(bag, ground_truth=True)
-
 
         if display:
             plt.ion()
@@ -337,7 +342,7 @@ class MapSimulator2D:
             rospy.loginfo("Finished simulation and saved to rosbag")
 
     def _move(self, move_cmd):
-        old_pos = np.concatenate((self._position, self._orientation))
+        old_pos = np.concatenate((self._noisy_position, self._noisy_orientation))
 
         if move_cmd['type'] == 'pose':
 
@@ -349,11 +354,11 @@ class MapSimulator2D:
             target_position = np.array(move_cmd['params'][0])
             target_orientation = np.array(move_cmd['params'][1])
 
-            self._position = np.array(target_position + noise[0:1]).flatten()
-            self._orientation = np.array(target_orientation + noise[2]).flatten()
+            self._noisy_position = np.array(target_position + noise[0:1]).flatten()
+            self._noisy_orientation = np.array(target_orientation + noise[2]).flatten()
 
-            self._ideal_position = target_position
-            self._ideal_orientation = target_orientation
+            self._real_position = target_position
+            self._real_orientation = target_orientation
 
         elif move_cmd['type'] == "odom":
 
@@ -361,9 +366,9 @@ class MapSimulator2D:
             target_orientation = np.array(move_cmd['params'][1])
 
             # Compute delta in initial rotation, translation, final rotation
-            delta_trans = target_position - self._ideal_position
-            delta_rot1 = np.arctan2(delta_trans[1], delta_trans[0]) - self._ideal_orientation
-            delta_rot2 = target_orientation - self._ideal_orientation - delta_rot1
+            delta_trans = target_position - self._real_position
+            delta_rot1 = np.arctan2(delta_trans[1], delta_trans[0]) - self._real_orientation
+            delta_rot2 = target_orientation - self._real_orientation - delta_rot1
             delta_trans = np.matmul(delta_trans, delta_trans)
             delta_trans = np.sqrt(delta_trans)
 
@@ -374,18 +379,19 @@ class MapSimulator2D:
             if not self._params['deterministic']:
                 alpha = self._params['odometry_alpha']
                 delta_rot1_hat += np.random.normal(0, alpha[0] * np.abs(delta_rot1)
-                                                    + alpha[1] * delta_trans)
+                                                   + alpha[1] * delta_trans)
                 delta_trans_hat += np.random.normal(0, alpha[2] * delta_trans
-                                                     + alpha[3] * (np.abs(delta_rot1) + np.abs(delta_rot2)))
+                                                    + alpha[3] * (np.abs(delta_rot1) + np.abs(delta_rot2)))
                 delta_rot2_hat += np.random.normal(0, alpha[0] * np.abs(delta_rot2)
-                                                    + alpha[1] * delta_trans)
+                                                   + alpha[1] * delta_trans)
 
-            theta1 = self._orientation + delta_rot1_hat
-            self._position = self._position + (delta_trans_hat * np.array([np.cos(theta1), np.sin(theta1)]).flatten())
-            self._orientation = theta1 + delta_rot2_hat
+            theta1 = self._noisy_orientation + delta_rot1_hat
+            self._noisy_position = self._noisy_position + (delta_trans_hat *
+                                                           np.array([np.cos(theta1), np.sin(theta1)]).flatten())
+            self._noisy_orientation = theta1 + delta_rot2_hat
 
-            self._ideal_position = target_position
-            self._ideal_orientation = target_orientation
+            self._real_position = target_position
+            self._real_orientation = target_orientation
 
         elif move_cmd['type'] == "velocity":
             # TODO
@@ -399,11 +405,11 @@ class MapSimulator2D:
         tf_trans = np.array(self._params['base_to_laser_tf'][0])
         tf_rot = np.array(self._params['base_to_laser_tf'][1])
 
-        rotation = rotate2d(self._orientation)
+        rotation = rotate2d(self._real_orientation)
         translation = rotation.dot(tf_trans)
 
-        self._sensor_position = self._position + translation
-        self._sensor_orientation = self._orientation + tf_rot
+        self._sensor_position = self._real_position + translation
+        self._sensor_orientation = self._real_orientation + tf_rot
 
     def _ray_trace(self):
 
@@ -463,9 +469,9 @@ class MapSimulator2D:
         tf2_msg = TFMessage()
 
         if ground_truth:
-            posx = float(self._position[0])
-            posy = float(self._position[1])
-            theta = float(self._orientation)
+            posx = float(self._noisy_position[0])
+            posy = float(self._noisy_position[1])
+            theta = float(self._noisy_orientation)
             frame_prefix = self._params["gt_prefix"]
 
             tf_map_odom_msg = TransformStamped()
@@ -486,9 +492,9 @@ class MapSimulator2D:
             tf2_msg.transforms.append(tf_map_odom_msg)
 
         else:
-            posx = float(self._ideal_position[0])
-            posy = float(self._ideal_position[1])
-            theta = float(self._ideal_orientation)
+            posx = float(self._real_position[0])
+            posy = float(self._real_position[1])
+            theta = float(self._real_orientation)
             frame_prefix = ""
 
         tf_odom_robot_msg = TransformStamped()
@@ -519,7 +525,8 @@ class MapSimulator2D:
 
             position = Point(float(self._params['base_to_laser_tf'][0][0]),
                              float(self._params['base_to_laser_tf'][0][1]), 0.0)
-            quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, float(self._params['base_to_laser_tf'][1][0]))
+            quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0,
+                                                                  float(self._params['base_to_laser_tf'][1][0]))
 
             tf_laser_robot_msg.transform.translation = position
             tf_laser_robot_msg.transform.rotation.x = quaternion[0]
@@ -581,21 +588,38 @@ class MapSimulator2D:
         for obstacle in self._obstacles:
             if isinstance(obstacle, Polygon):
                 vertices = obstacle.vertices.transpose()
-                ax.fill(vertices[0], vertices[1], edgecolor='tab:blue', hatch='////', fill=False, alpha = obstacle.opacity)
+                ax.fill(vertices[0], vertices[1], edgecolor='tab:blue', hatch='////',
+                        fill=False, alpha=obstacle.opacity)
 
-    def _draw_robot(self, ax):
+    def _draw_robot(self, ax, real=False):
         robot_size = 0.05
 
-        robot_base = plt.Circle((self._position[0], self._position[1]), robot_size, color='tab:green', zorder=2)
-        ax.add_artist(robot_base,)
+        if real:
+            pos_x = self._real_position[0]
+            pos_y = self._real_position[1]
+            theta = self._real_orientation
+            orientation_inipt = self._real_position
+            robot_color = "tab:green"
+            z_order = 4
+        else:
+            pos_x = self._noisy_position[0]
+            pos_y = self._noisy_position[1]
+            theta = self._noisy_orientation
+            orientation_inipt = self._noisy_position
+            robot_color = "tab:purple"
+            z_order = 2
 
-        orientation_inipt = self._position
-        orientation_endpt = robot_size * np.array([np.cos(self._orientation), np.sin(self._orientation)]).reshape((2,))
+        robot_base = plt.Circle((pos_x, pos_y), robot_size, color=robot_color, zorder=z_order)
+        ax.add_artist(robot_base)
+
+        orientation_endpt = robot_size * np.array([np.cos(theta), np.sin(theta)]).reshape((2,))
         orientation_endpt += orientation_inipt
         orientation_line = np.stack((orientation_inipt, orientation_endpt)).transpose()
 
-        robot_orientation = plt.Line2D(orientation_line[0], orientation_line[1], color='white')
+        robot_orientation = plt.Line2D(orientation_line[0], orientation_line[1], color='white', zorder=z_order + 1)
         ax.add_artist(robot_orientation)
+
+        return robot_base
 
     def _draw_beams(self, ax, beams, hits):
         if beams is None:
@@ -630,11 +654,10 @@ class MapSimulator2D:
         ax.set_ylim(self.min_y, self.max_y)
         ax.set_ybound(self.min_y, self.max_y)
 
-
-
         self._draw_map(ax)
         self._draw_beams(ax, beam_endpoints, hits)
-        self._draw_robot(ax)
+        noisy_robot_handle = self._draw_robot(ax)
+        real_robot_handle = self._draw_robot(ax, real=True)
 
         ax.xaxis.set_major_locator(MultipleLocator(1))
         ax.yaxis.set_major_locator(MultipleLocator(1))
@@ -642,6 +665,9 @@ class MapSimulator2D:
         ax.yaxis.set_minor_locator(AutoMinorLocator(4))
         ax.grid(which='major', color='#CCCCCC')
         ax.grid(which='minor', color='#CCCCCC', linestyle=':')
+
+        ax.legend((real_robot_handle, noisy_robot_handle), ("Real Pose", "Noisy Odometry"),
+                  loc='lower center')
 
         ax.grid(True)
 
@@ -662,7 +688,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', action='store', help='Output ROSbag file', type=str, required=False)
 
     parser.add_argument('-p', '--preview', action='store_true')
-    parser.add_argument('-s', '--search_paths', action='store', help='Search paths for the input and include files separated by colons (:)', type=str, default='.:robots:maps')
+    parser.add_argument('-s', '--search_paths', action='store', type=str, default='.:robots:maps',
+                        help='Search paths for the input and include files separated by colons (:)')
 
     args, override_args = parser.parse_known_args()
 
@@ -675,7 +702,6 @@ if __name__ == '__main__':
             override_str += '"' + str(arg_keyval[0]) + '":' + str(arg_keyval[1]) + ','
 
         override_str = override_str[0:-1] + "}"
-
 
     simulator = MapSimulator2D(args.input, args.search_paths, override_params=override_str)
     simulator.convert(args.output, display=args.preview)
