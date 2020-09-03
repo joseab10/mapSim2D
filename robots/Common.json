@@ -18,7 +18,7 @@
   "meas_per_move": 3,
 
   "measurement_sigma": [[0.005, 0.0],
-                        [0.0, 0.0002908882087]],
+                        [0.0, 0.0]],
 
   "start_pose": [[0.5, 0.5], [0.0]],
 
@@ -26,8 +26,8 @@
   "move_time_interval" : 1000.0,
   "initial_timestamp" : null,
 
-  "render_move_pause": 0.25,
-  "render_sense_pause": 0.15,
+  "render_move_pause": 0.15,
+  "render_sense_pause": 0.05,
 
   "gt_prefix": "/GT/"
 }
