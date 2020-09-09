@@ -1,3 +1,5 @@
+#! /usr/bin/env python
+
 # ROS Libraries
 import rospy
 import roslib
@@ -354,16 +356,18 @@ class MapSimulator2D:
             target_position = np.array(move_cmd['params'][0])
             target_orientation = np.array(move_cmd['params'][1])
 
-            self._noisy_position = np.array(target_position + noise[0:1]).flatten()
-            self._noisy_orientation = np.array(target_orientation + noise[2]).flatten()
-
             self._real_position = target_position
             self._real_orientation = target_orientation
+
+            self._noisy_position = np.array(target_position + noise[0:1]).flatten()
+            self._noisy_orientation = np.array(target_orientation + noise[2]).flatten()
 
         elif move_cmd['type'] == "odom":
 
             target_position = np.array(move_cmd['params'][0])
             target_orientation = np.array(move_cmd['params'][1])
+
+
 
             # Compute delta in initial rotation, translation, final rotation
             delta_trans = target_position - self._real_position
@@ -375,6 +379,9 @@ class MapSimulator2D:
             delta_rot1_hat = delta_rot1
             delta_trans_hat = delta_trans
             delta_rot2_hat = delta_rot2
+
+            self._real_position = target_position
+            self._real_orientation = target_orientation
             # Add Noise
             if not self._params['deterministic']:
                 alpha = self._params['odometry_alpha']
@@ -389,9 +396,6 @@ class MapSimulator2D:
             self._noisy_position = self._noisy_position + (delta_trans_hat *
                                                            np.array([np.cos(theta1), np.sin(theta1)]).flatten())
             self._noisy_orientation = theta1 + delta_rot2_hat
-
-            self._real_position = target_position
-            self._real_orientation = target_orientation
 
         elif move_cmd['type'] == "velocity":
             # TODO
@@ -469,9 +473,9 @@ class MapSimulator2D:
         tf2_msg = TFMessage()
 
         if ground_truth:
-            posx = float(self._noisy_position[0])
-            posy = float(self._noisy_position[1])
-            theta = float(self._noisy_orientation)
+            posx = float(self._real_position[0])
+            posy = float(self._real_position[1])
+            theta = float(self._real_orientation)
             frame_prefix = self._params["gt_prefix"]
 
             tf_map_odom_msg = TransformStamped()
@@ -492,9 +496,9 @@ class MapSimulator2D:
             tf2_msg.transforms.append(tf_map_odom_msg)
 
         else:
-            posx = float(self._real_position[0])
-            posy = float(self._real_position[1])
-            theta = float(self._real_orientation)
+            posx = float(self._noisy_position[0])
+            posy = float(self._noisy_position[1])
+            theta = float(self._noisy_orientation)
             frame_prefix = ""
 
         tf_odom_robot_msg = TransformStamped()
