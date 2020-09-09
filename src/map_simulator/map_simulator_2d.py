@@ -49,7 +49,7 @@ def import_json(in_file, include_path=None, config=None, includes=None, included
     import_successful = False
 
     for path in include_path:
-        in_path = path + os.path.sep + in_file
+        in_path = os.path.join(path, in_file)
         in_path = os.path.expandvars(in_path)
         in_path = os.path.normpath(in_path)
 
@@ -93,9 +93,7 @@ class MapSimulator2D:
 
     def __init__(self, in_file, include_path, override_params=None):
 
-        rospy.init_node('map_simulator', anonymous=True)
-
-        include_path = include_path.split(os.pathsep)
+        rospy.init_node('mapsim2d', anonymous=True)
 
         config = import_json(in_file, include_path)
 
