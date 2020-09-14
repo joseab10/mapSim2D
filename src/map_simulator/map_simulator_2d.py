@@ -365,8 +365,6 @@ class MapSimulator2D:
             target_position = np.array(move_cmd['params'][0])
             target_orientation = np.array(move_cmd['params'][1])
 
-
-
             # Compute delta in initial rotation, translation, final rotation
             delta_trans = target_position - self._real_position
             delta_rot1 = np.arctan2(delta_trans[1], delta_trans[0]) - self._real_orientation
