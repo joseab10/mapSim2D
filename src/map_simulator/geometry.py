@@ -18,6 +18,17 @@ class Line:
         self.p2 = p2
 
         self.len = self._length()
+        self.slope = self._slope()
+
+    def _slope(self):
+        """
+        Returns the slope of the line segment
+
+        :return: (float) Slope of the line segment
+        """
+
+        diff = self.p2 - self.p1
+        return np.arctan2(diff[1], diff[0])
 
     def _length(self):
         """
@@ -25,6 +36,7 @@ class Line:
 
         :return: (float) Length of the line segment
         """
+
         diff = self.p2 - self.p1
         return np.sqrt(np.dot(diff, diff))
 
@@ -37,6 +49,7 @@ class Line:
         :param line2: (Line) Second line to determine the intersection with
         :param outside_segments: (bool) Determines whether the intersection needs to fall within the two line segments
                                  in order to count. If True, then the lines are considered of infinite length.
+
         :return: (ndarray) The point where the two lines intersect each other. If collinear, then the point closest
                             to self.p1. Returns None if the lines don't intersect.
         """
@@ -84,17 +97,30 @@ class Line:
     def is_parallel(self, line2):
         """
         Determines whether this line is parallel to another line
+
         :param line2: (Line) Second line to check parallelism with
+
         :return: (bool) True if lines are parallel, False otherwise
         """
-        # TODO: implement
-        return true
+        return self.slope == line2.slope
 
     def __str__(self):
         """
+        String representation
+
         :return: A serialized string for more convenient printing and debugging
         """
-        return "{" + str(self.p1) + ", " + str(self.p2) + "}"
+
+        return "[Line: {" + str(self.p1) + ", " + str(self.p2) + "}]"
+
+    def __repr__(self):
+        """
+        String representation
+
+        :return: A serialized string for more convenient printing and debugging
+        """
+
+        return self.__str__()
 
 
 class Polygon:
@@ -105,6 +131,18 @@ class Polygon:
     """
 
     def __init__(self, vertices=None, compute_bounding_box=True, opacity=1.0):
+        """
+        Constructor.
+
+        :param vertices: (list|ndarray) Ordered list of vertices comprising a closed polygon. Last edge connects the
+                                        first and last vertices automatically, so no need to duplicate either of them.
+        :param compute_bounding_box: (bool) Determines whether to compute a bounding rectangular box for this polygon.
+                                            Used only because bounding boxes are themselves polygons, and must not get
+                                            their own bounding box, as then they would infinitely recurse.
+        :param opacity: (float: [0.0, 1.0]) Opacity level of the polygon. 0.0 means that it is totally transparent,
+                                            while 1.0 is totally opaque. Used for line_intersect() to randomly determine
+                                            if a line intersects it or not when opacity is set to a value other than 1.
+        """
 
         self.vertices = None
 
@@ -119,6 +157,18 @@ class Polygon:
             self.set_vertices(vertices, compute_bounding_box)
 
     def set_vertices(self, vertices, compute_bounding_box=True):
+        """
+        Sets the vertices of a polygon after being created and recomputes its bounding box if specified.
+
+        :param vertices: (list|ndarray) Ordered list of vertices comprising a closed polygon. Last edge connects the
+                                        first and last vertices automatically, so no need to duplicate either of them.
+        :param compute_bounding_box: (bool) Determines whether to compute a bounding rectangular box for this polygon.
+                                            Used only because bounding boxes are themselves polygons, and must not get
+                                            their own bounding box, as then they would infinitely recurse.
+
+        :return: None
+        """
+
         if not isinstance(vertices, np.ndarray):
             vertices = np.array(vertices)
 
@@ -128,9 +178,14 @@ class Polygon:
             self._set_bounding_box()
 
     def _set_bounding_box(self):
+        """
+        Sets the polygon's bounding box from its minimum and maximum x and y values.
 
-        x_s = self.vertices[:,0]
-        y_s = self.vertices[:,1]
+        :return: (Polygon) A polygon representing a bounding box rectangle completely enclosing its parent Polygon.
+        """
+
+        x_s = self.vertices[:, 0]
+        y_s = self.vertices[:, 1]
         self.min_x = np.min(x_s)
         self.min_y = np.min(y_s)
         self.max_x = np.max(x_s)
@@ -139,15 +194,36 @@ class Polygon:
         return self.bounding_box()
 
     def bounding_box(self):
+        """
+        Gets the polygon's bounding box.
+
+        :return: (Polygon) A polygon representing a bounding box rectangle completely enclosing its parent Polygon.
+        """
+
         return Polygon([[self.min_x, self.min_y],
                         [self.min_x, self.max_y],
                         [self.max_x, self.max_y],
                         [self.max_x, self.max_y]], compute_bounding_box=False)
 
     def point_inside(self):
-        return true
+        """
+        Check if a given point lies inside the close polygon.
+
+        :return: (bool) True if the point lies inside the polygon, False otherwise
+        """
+
+        # TODO:
+        return bool(self.vertices)
 
     def line_intersects(self, line):
+        """
+        Check if a given line segment intersects the polygon. Takes into account the polygon's opacity.
+
+        :param line: (Line) A line segment to check whether it intersects the polygon.
+
+        :return: (point|None) A point of the intersection closest to the line's first point p1 if the line segment
+                              intersects the polygon's edges. None if it doesn't intersect.
+        """
 
         if self.opacity < 0:
             return None
@@ -181,23 +257,53 @@ class Polygon:
         return min_p
 
     def __str__(self):
-        vertex_str = "{"
+        """
+        String representation of the polygon as a list of vertices for easier debugging and printing.
+
+        :return: (string) String representation of the set of vertices.
+        """
+
+        vertex_str = "[Poly: {"
 
         for vertex in self.vertices:
             vertex_str += str(vertex) + ", "
 
         vertex_str = vertex_str[0:-2] + "}"
 
+        vertex_str += ', Op.: '
+        vertex_str += str(self.opacity)
+        vertex_str += ']'
+
         return vertex_str
+
+    def __repr__(self):
+        """
+        String representation of the polygon as a list of vertices for easier debugging and printing.
+
+        :return: (string) String representation of the set of vertices.
+        """
+
+        return self.__str__()
 
 
 def rotate2d(theta):
+    """
+    Compute a 2D rotation matrix given an angle.
+
+    :param theta: (float) Angle to rotate about the z axis.
+
+    :return: (ndarray) A 2x2 rotation matrix.
+    """
+
     s, c = np.sin(theta), np.cos(theta)
 
-    return np.array([[c, -s], [s, c]]).reshape((2,2))
+    return np.array([[c, -s], [s, c]]).reshape((2, 2))
 
-# Simple Class Tests
+
 if __name__ == "__main__":
+    """
+    Testing and Sample code
+    """
 
     square = Polygon(np.array([[1., 1.], [1., 2.], [2., 2.], [2., 1.]]))
 
