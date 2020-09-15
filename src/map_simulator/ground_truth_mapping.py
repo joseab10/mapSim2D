@@ -1,12 +1,10 @@
 # ROS Libraries
 import rospy
-import roslib
 import tf
+import tf.transformations
 
 # ROS Messages
-from std_msgs.msg import Int8MultiArray, Header
-from geometry_msgs.msg import Point, Quaternion, TransformStamped
-from tf2_msgs.msg import TFMessage
+from std_msgs.msg import Header
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from sensor_msgs.msg import LaserScan
 
@@ -16,7 +14,15 @@ from skimage.draw import line
 
 
 class GroundTruthMapping:
+    """
+    Class for generating a ground truth map from deterministic (noiseless) odometry and measurement messages,
+    instead of running an entire SLAM stack.
+    """
+
     def __init__(self):
+        """
+        Constructor
+        """
 
         rospy.init_node('gt_mapping')
 
@@ -48,6 +54,17 @@ class GroundTruthMapping:
         rospy.spin()
 
     def _world2map(self, x, y, mx0=None, my0=None, delta=None):
+        """
+        Convert from world units to discrete cell coordinates.
+
+        :param x: (float) X position in world coordinates to be converted.
+        :param y: (float) Y position in world coordinates to be converted.
+        :param mx0: (float) X position in world coordinates of the map's (0, 0) cell. If None, own value is used.
+        :param my0: (float) Y position in world coordinates of the map's (0, 0) cell. If None, own value is used.
+        :param delta: (float) Width/height of a cell in world units (a.k.a. resolution). If None, own value is used.
+
+        :return: (tuple) Tuple if integer valued coordinates in map units. I.e.: cell indexes corresponding to x and y.
+        """
 
         if mx0 is None:
             mx0 = self._map_origin.position.x
@@ -62,6 +79,16 @@ class GroundTruthMapping:
         return ix, iy
 
     def _sensor_callback(self, msg):
+        """
+        Function to be called each time a laser scan message is received.
+        It computes the pose and endpoints of the laser beams and stores them in a queue,
+        waiting for the right time to compute the map.
+
+        :param msg: (sensor_msgs.LaserScan) Received Laser Scan message.
+
+        :return: None
+        """
+
         pose = self._tf_listener.lookupTransform(self._map_frame, self._laser_frame, rospy.Time(0))
 
         self._min_range = msg.range_min
@@ -86,6 +113,22 @@ class GroundTruthMapping:
         self._endpoints.append(((pose_x, pose_y), endpoints))
 
     def _map_callback(self, msg):
+        """
+        Function to be called each time a map message is received,
+        just to copy the SLAM generated map properties for easier comparison.
+        It:
+            * takes the metadata from the published map (height, width, resolution, map origin),
+            * creates a map if it is the first time,
+            * checks if the map size changed in subsequent times and enlarges it in case it did,
+            * takes all the poses and endpoints from the queue and updates the map values,
+            * thresholds the map values,
+            * publishes a ground truth occupancy map
+
+        :param msg: (nav_msgs.OccupancyGrid) Received Map message.
+
+        :return: None
+        """
+        
         # Get published map properties
         height = msg.info.height
         width = msg.info.width
