@@ -1,16 +1,34 @@
 import numpy as np
 
 import matplotlib as mpl
+import matplotlib.colors
+import matplotlib.cm
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, Normalize, BoundaryNorm
-from matplotlib.lines import Line2D
+from matplotlib.colors import Normalize, BoundaryNorm
 
 from map_simulator.disc_states import DiscreteStates as DiSt
 
 
 class MapColorizer:
+    """
+    Class for converting a floating point valued map into an RGBA image or a matplotlib figure.
+    The maps can be a list, np.ndarray or, preferably, numpy masked arrays in order to support both continuous floating
+    point values, as well as discrete states such as Undefined, Bimodal, etc.
+    Such Discrete values are defined in disc_states.py, along with their values, colors and labels.
+    """
 
     def __init__(self, wm_extent=None, ds_list=None):
+        """
+        Constructor. Initializes the MapColorizer Object.
+
+        :param wm_extent: (list) World map extension in world units. Used for the values of the image ticks.
+                                 E.g.: [x0, x1, y0, y1]
+
+        :param ds_list: (list) List of possible discrete state values.
+                               Used for drawing the discrete color bar. All states listed will be displayed in the bar,
+                               even if the image has no pixels with that value.
+                                 E.g.: [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED]
+        """
 
         self._wm_extent = None
         self._aspect_ratio = 'lower'
@@ -53,25 +71,73 @@ class MapColorizer:
         self._nrm_ci = None
         self._map_ci = None
 
+        self._cb_ci_extend = 'neither'
+
         self.set_cont_bounds(None, self._v_min, self._v_max, occupancy_map=True)
 
     def set_wm_extent(self, wm_extent):
+        """
+        Set the world map extension.
+
+        :param wm_extent: (list) World map extension in world units. Used for the values of the image ticks.
+                                 E.g.: [x0, x1, y0, y1]
+        :return: None
+        """
+
         self._wm_extent = wm_extent
         
     def set_cb_orientation(self, orientation):
+        """
+        Set the color bar orientation in the plots
+
+        :param orientation: ('horizontal'|'vertical')(Default: 'horizontal')
+
+        :return: None
+        """
+
         if orientation in ['horizontal', 'vertical']:
             self._cb_orientation = orientation
         else:
             self._cb_orientation = 'horizontal'
     
     def set_aspect_ratio(self, aspect_ratio):
+        """
+        Set the aspect ratio of the plots. Probably useless given that wm_extent is also in use.
+
+        :param aspect_ratio: (string|float) Aspect ratio between the x and y axes of the plot
+
+        :return: None
+        """
+
         self._aspect_ratio = aspect_ratio
         
     def set_cb_tick_count(self, cb_tick_count):
+        """
+        Set the number of ticks in the continuous color bar
+
+        :param cb_tick_count: (int) Number of ticks to divide the (v_min, v_max) interval of the continuous colorbar.
+
+        :return: None
+        """
+
         if cb_tick_count > 0:
             self._cb_tick_count = cb_tick_count
+        else:
+            self._cb_tick_count = 10
 
     def set_disc_state_list(self, ds_list):
+        """
+        Set the list of possible discrete states.
+        Used for defining the possible values and colors, color map and normalization for the actual plot and also the
+        color map, ticks and tick labels of the discrete color bar.
+
+        :param ds_list: (list) List of possible discrete state values.
+                               Used for drawing the discrete color bar. All states listed will be displayed in the bar,
+                               even if the image has no pixels with that value.
+                               E.g.: [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED]
+
+        :return: None
+        """
 
         self._ds_list = DiSt.sort_ds_list(ds_list)
 
@@ -99,22 +165,41 @@ class MapColorizer:
         self._map_ds._A = []
 
     def set_cont_bounds(self, img, v_min=0, v_max=1, occupancy_map=True):
+        """
+        Set the min and max continuous values that a certain cell can take.
+        Used for Used for defining the possible values, color map and normalization for the actual plot and also the
+        color map, ticks and tick labels for the continuous color bar.
+
+        :param img: (numpy.ma|numpy.ndarray) Actual image to be plotted. Used only to determin its min and max values
+                                             in case v_min, v_max or both are defined as None.
+        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as img.min()
+        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as img.max()
+        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
+                                     respectively if they were not defined as None.
+
+        :return: None
+        """
+
+        self._cb_ci_extend = 'neither'
 
         if v_min is not None:
             self._v_min = v_min
         else:
             self._v_min = img.min()
+            self._cb_ci_extend = 'min'
 
         if v_max is not None:
             self._v_max = v_max
         else:
             self._v_max = img.max()
+            self._cb_ci_extend = 'max'
 
         if v_min is None and v_max is None:
-            self._cmp_ci = mpl.cm.RdYlBu
+            self._cmp_ci = mpl.cm.get_cmap('RdYlBu')
+            self._cb_ci_extend = 'both'
 
         else:
-            self._cmp_ci = mpl.cm.afmhot_r
+            self._cmp_ci = mpl.cm.get_cmap('afmhot_r')
 
         tick_step = float(self._v_max - self._v_min) / self._cb_tick_count
         self._tks_ci = np.arange(self._v_min, self._v_max + tick_step, tick_step)
@@ -135,6 +220,17 @@ class MapColorizer:
 
     @staticmethod
     def _draw_cb(fig, mappable, params, tick_labels=None):
+        """
+        Draw a color bar.
+
+        :param fig: Matplotlib Figure to add the color bar to.
+        :param mappable: A ScalarMappable (independent from any actual plot) to use as the color scale.
+        :param params: (dict) Dictionary of arguments supported by plt.colorbar()
+        :param tick_labels: (list) list of string labels for each tick in the color bar
+
+        :return: The color bar object.
+        """
+
         cb = fig.colorbar(mappable, **params)
 
         if tick_labels is not None:
@@ -143,6 +239,14 @@ class MapColorizer:
         return cb
 
     def _draw_cb_disc(self, fig):
+        """
+        Draw a Discretely Valued color bar
+
+        :param fig: Matplotlib Figure to add the color bar to.
+
+        :return: The discrete color bar object.
+        """
+
         cb_params = {
             'cmap':        self._cmp_ds,
             'ticks':       self._tks_ds,
@@ -155,18 +259,34 @@ class MapColorizer:
         return self._draw_cb(fig, self._map_ds, cb_params, self._tlb_ds)
 
     def _draw_cb_cont(self, fig):
+        """
+        Draw a Continuously Valued color bar
+
+        :param fig: Matplotlib Figure to add the color bar to.
+
+        :return: The continuous color bar object.
+        """
+
         cb_params = {
             'cmap': self._map_ci,
             'ticks': self._tks_ci,
             'label': "Occupancy",
             'orientation': self._cb_orientation,
             'norm': self._nrm_ci,
-            'extend': 'neither'
+            'extend': self._cb_ci_extend
         }
 
         return self._draw_cb(fig, self._map_ci, cb_params, self._tlb_ci)
 
     def _imshow_disc_map(self, ax, img):
+        """
+        Draw the discrete portion of a map as a colored image.
+
+        :param ax: The Matplotlib axes object to plot to.
+        :param img: A masked array representing a map with discrete values.
+
+        :return: The actual image plot object.
+        """
 
         params = {
             'cmap': self._cmp_ds,
@@ -179,6 +299,18 @@ class MapColorizer:
         return ax.imshow(img, **params)
 
     def _imshow_cont_map(self, ax, img, v_min=0, v_max=1, occupancy_map=True):
+        """
+        Draw the continuous portion of a map as a colored image.
+
+        :param ax: The Matplotlib axes object to plot to.
+        :param img: A masked array representing a map with continuous values.
+        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as img.min()
+        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as img.max()
+        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
+                                     respectively if they were not defined as None.
+
+        :return: The actual image plot object.
+        """
 
         self.set_cont_bounds(img, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
 
@@ -193,6 +325,12 @@ class MapColorizer:
         return ax.imshow(img, **params)
 
     def _make_figure(self):
+        """
+        Creates a Matplotlib figure.
+
+        :return: A tuple of a Matplotlib figure and axes objects.
+        """
+
         fig, ax = plt.subplots()
 
         ax.set_aspect(self._aspect_ratio)
@@ -200,6 +338,21 @@ class MapColorizer:
         return fig, ax
 
     def _draw_plot(self, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True):
+        """
+        Create a figure, draw the discrete map and color bar if not None, and then the continuous map and color bar.
+        The figure isn't actually displayed, in case it is to be directly saved to a file.
+
+        :param cont_map: A masked array representing a map with continuous values.
+        :param ds_map: A masked array representing a map with discrete values.
+                       If None, then only the continuous part will be drawn.
+        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
+        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
+        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
+                                     respectively if they were not defined as None.
+
+        :return: A tuple of a Matplotlib figure and axes objects
+        """
+
         fig, ax = self._make_figure()
 
         if ds_map is not None:
@@ -212,6 +365,18 @@ class MapColorizer:
         return fig, ax
 
     def colorize(self, cont_map, ds_map=None, v_min=0, v_max=1):
+        """
+        Generate an RGBa [0, 1] image from a continuous and discrete map without actually plotting it using Matplotlib.
+
+        :param cont_map: A masked array representing a map with continuous values.
+        :param ds_map: A masked array representing a map with discrete values.
+                       If None, then only the continuous part will be drawn.
+        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
+        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
+
+        :return: An RGBa [0, 1] image.
+        """
+
         shape = cont_map.shape
         shape = (shape[0], shape[1], 4)
         rgba_img = np.zeros(shape)
@@ -227,18 +392,53 @@ class MapColorizer:
         return rgba_img
 
     def plot(self, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True):
+        """
+        Create and display a figure, draw the discrete map and color bar if not None, and then the continuous map and
+        color bar.
+
+        :param cont_map: A masked array representing a map with continuous values.
+        :param ds_map: A masked array representing a map with discrete values.
+                       If None, then only the continuous part will be drawn.
+        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
+        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
+        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
+                                     respectively if they were not defined as None.
+
+        :return: A tuple of a Matplotlib figure and axes objects
+        """
+
         fig, ax = self._draw_plot(cont_map, ds_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
 
         fig.show()
-    
+
+        return fig, ax
+
     def plot_save(self, path, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True):
+        """
+        Create and save without displaying a figure, draw the discrete map and color bar if not None, and then the
+        continuous map and color bar.
+
+        :param path: (string) Path where the resulting image is to be saved.
+        :param cont_map: A masked array representing a map with continuous values.
+        :param ds_map: A masked array representing a map with discrete values.
+                       If None, then only the continuous part will be drawn.
+        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
+        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
+        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
+                                     respectively if they were not defined as None.
+
+        :return: None
+        """
+
         self._draw_plot(cont_map, ds_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
-        
+
         plt.savefig(path, bbox_inches='tight')
 
 
-# Example and test code
 if __name__ == '__main__':
+    """
+    Test and sample code
+    """
 
     import numpy.ma as ma
     import os.path
@@ -265,11 +465,11 @@ if __name__ == '__main__':
     means_ds[undef_mask] = DiSt.UNDEFINED.value
     means_ds[~undef_mask] = ma.masked
 
-    worldmap_extent = [150.4, 183.0, 24.5, 0]
+    worldmap_extent = [150.4, 183.0, 0, 24.5]
     test_ds_list = [DiSt.UNDEFINED, DiSt.UNIFORM, DiSt.BIMODAL]
 
     test_v_min = 0
-    test_v_max = 10
+    test_v_max = 1
 
     test_occ = True
 
@@ -279,15 +479,18 @@ if __name__ == '__main__':
     mean_colorizer.set_disc_state_list(test_ds_list)
     mean_colorizer.set_cb_tick_count(4)
     mean_colorizer.set_aspect_ratio('equal')
-    mean_colorizer.set_cb_orientation('vertical')
+    mean_colorizer.set_cb_orientation('horizontal')
 
+    # Save map to image file
     test_path = os.path.expanduser("~/Desktop/colorizer_test.svg")
     mean_colorizer.plot_save(test_path, means, means_ds, v_min=test_v_min, v_max=test_v_max, occupancy_map=test_occ)
 
-    # Plot map
+    # Plot map to interactive window
     mean_colorizer.plot(means, means_ds, v_min=test_v_min, v_max=test_v_max, occupancy_map=test_occ)
 
+    # Colorize (i.e. generate an RGBa image) from a map
     rgba = mean_colorizer.colorize(means, means_ds, v_min=test_v_min, v_max=test_v_max)
+    # and then display it to compare.
     plt.figure()
     plt.imshow(rgba)
     plt.show()
