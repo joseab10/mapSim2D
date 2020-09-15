@@ -1,12 +1,11 @@
 # ROS Libraries
 import rospy
-import roslib
 import tf
+import tf.transformations
 import rosbag
 
 # ROS Messages
-from geometry_msgs.msg import Point, Quaternion, TransformStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Point, TransformStamped
 from sensor_msgs.msg import LaserScan
 from tf2_msgs.msg import TFMessage
 
@@ -26,76 +25,25 @@ from collections import deque
 from map_simulator.geometry import Line, Polygon, rotate2d
 
 
-def set_dict_param(in_dict, self_dict, key, param_name, default):
-    if key in in_dict:
-        self_dict[key] = in_dict[key]
-    else:
-        rospy.logwarn("{} undefined in config file. Using default value: '{}. Help: {}'.".format(key,
-                                                                                                 default, param_name))
-        self_dict[key] = default
-
-
-def import_json(in_file, include_path=None, config=None, includes=None, included=None):
-
-    if config is None:
-        config = {}
-    if include_path is None:
-        include_path = []
-    if includes is None:
-        includes = deque()
-    if included is None:
-        included = set([])
-
-    import_successful = False
-
-    for path in include_path:
-        in_path = os.path.join(path, in_file)
-        in_path = os.path.expandvars(in_path)
-        in_path = os.path.normpath(in_path)
-
-        if os.path.isfile(in_path):
-            try:
-                with open(in_path, "r") as f:
-                    text = f.read()
-                    file_config = json.loads(text)
-                    included.add(in_file)
-            except (IOError, ValueError):
-                rospy.logwarn("Couldn't open %s", in_path)
-            else:
-                rospy.loginfo("Loaded file %s", in_path)
-                import_successful = True
-                break
-
-    if not import_successful:
-        rospy.logerr("Couldn't open %s in any of the search paths: %s", in_file, ", ".join(include_path))
-        exit(-1)
-
-    if "include" in file_config:
-        include_list = file_config["include"]
-        include_list.reverse()
-        includes.extendleft(include_list)
-        file_config.pop("include")
-
-    tmp_config = config.copy()
-
-    while includes:
-        tmp_file = includes.popleft()
-        if tmp_file not in included:
-            inc_config = import_json(tmp_file, include_path, config, includes, included)
-            tmp_config.update(inc_config)
-
-    tmp_config.update(file_config)
-
-    return tmp_config
-
-
 class MapSimulator2D:
+    """
+    Class for simulating a robot's pose and it's scans using a laser sensor given a series of move commands around a map
+    defined with polygonal obstacles.
+    """
 
     def __init__(self, in_file, include_path, override_params=None):
+        """
+        Constructor
+
+        :param in_file: (string) Name of the main robot parameter file. Actual file might include more files.
+        :param include_path: (list) List of path strings to search for main and included files.
+        :param override_params: (dict) Dictionary of parameter:value pairs to override any configuration
+                                       defined in the files.
+        """
 
         rospy.init_node('mapsim2d', anonymous=True)
 
-        config = import_json(in_file, include_path)
+        config = self._import_json(in_file, include_path)
 
         if override_params is not None:
             override_params = json.loads(override_params)
@@ -198,7 +146,7 @@ class MapSimulator2D:
 
         # Parse Parameters
         for param, values in defaults.items():
-            set_dict_param(config, self._params, param, values['desc'], values['def'])
+            self._set_dict_param(config, self._params, param, values['desc'], values['def'])
 
         # Uncertainty Parameters
         self._params['pose_sigma'] = np.array(self._params['pose_sigma'])
@@ -263,7 +211,103 @@ class MapSimulator2D:
 
         self._compute_sensor_pose()
 
+    @staticmethod
+    def _set_dict_param(in_dict, self_dict, key, param_name, default):
+        """
+        Method for setting a parameter's value, or take the default one if not provided.
+
+        :param in_dict: (dict) Input dictionary from which (valid) parameters will be read.
+        :param self_dict: (dic) Own dictionary to which only valid parametres will be written.
+        :param key: (string) Parameter key (name) under which the value is stored both in the in_dict and self_dict.
+        :param param_name: (string) Parameter long name to be displayed in output messages.
+        :param default: Default value to be used in case parameter is not defined in in_dict.
+
+        :return: None
+        """
+
+        if key in in_dict:
+            self_dict[key] = in_dict[key]
+        else:
+            rospy.logwarn("{} undefined in config file. Using default value: '{}. Help: {}'.".format(key,
+                                                                                                     default,
+                                                                                                     param_name))
+            self_dict[key] = default
+
+    def _import_json(self, in_file, include_path=None, config=None, includes=None, included=None):
+        """
+        Recursively import a JSON file and it's included subfiles.
+
+        :param in_file: (string) Path string pointing to a JSON configuration file.
+        :param include_path: (list) List of paths where to search for files.
+        :param config: (dict) Configuration dictionary to add parameters to.
+        :param includes: (deque) Queue of files to be included as read from the file's include statement.
+        :param included: (set) Set of files already included to prevent multiple inclusions.
+
+        :return: (dict) Dictionary of settings read from the JSON file(s).
+        """
+
+        if config is None:
+            config = {}
+        if include_path is None:
+            include_path = []
+        if includes is None:
+            includes = deque()
+        if included is None:
+            included = set([])
+
+        import_successful = False
+
+        for path in include_path:
+            in_path = os.path.join(path, in_file)
+            in_path = os.path.expandvars(in_path)
+            in_path = os.path.normpath(in_path)
+
+            if os.path.isfile(in_path):
+                try:
+                    with open(in_path, "r") as f:
+                        text = f.read()
+                        file_config = json.loads(text)
+                        included.add(in_file)
+                except (IOError, ValueError):
+                    rospy.logwarn("Couldn't open %s", in_path)
+                else:
+                    rospy.loginfo("Loaded file %s", in_path)
+                    import_successful = True
+                    break
+
+        if not import_successful:
+            rospy.logerr("Couldn't open %s in any of the search paths: %s", in_file, ", ".join(include_path))
+            exit(-1)
+
+        if "include" in file_config:
+            include_list = file_config["include"]
+            include_list.reverse()
+            includes.extendleft(include_list)
+            file_config.pop("include")
+
+        tmp_config = config.copy()
+
+        while includes:
+            tmp_file = includes.popleft()
+            if tmp_file not in included:
+                inc_config = self._import_json(tmp_file, include_path, config, includes, included)
+                tmp_config.update(inc_config)
+
+        tmp_config.update(file_config)
+
+        return tmp_config
+
     def convert(self, output_file, display=False):
+        """
+        Main method for simulating and either saving the data to a ROSBag file, displaying it or both.
+
+        :param output_file: (string|None) Path and filename to where the ROSBag file is to be saved.
+                                          If None, then nothing will be saved to file, only simulated.
+        :param display: (bool) Display the simulation. Set to False to run faster
+                               (no pauses in the execution for visualization)
+
+        :return: None
+        """
 
         if output_file is None and not display:
             return
@@ -342,6 +386,27 @@ class MapSimulator2D:
             rospy.loginfo("Finished simulation and saved to rosbag")
 
     def _move(self, move_cmd):
+        """
+        Simulate a change in the robot pose by following a move command and adding noise.
+        It updates both the real and the noisy positions, and recomputes the laser pose.
+        It also increments the time according to the move_time_interval parameter.
+
+        :param move_cmd: (dict) Move command comprised of a type and additional parameters.
+                                {'type': <move_type>, 'params': <move_params>}
+                                Currently supported types:
+                                    * 'pose' : take <move_params>[0] directly as the target position and
+                                               <move_params>[1] as the target orientation. Sample noise from a 0-mean
+                                               gaussian and add it to the target position.
+                                    * 'odom' : compute the difference in initial rotation r1, translation t and final
+                                               rotation r2 between the current real pose and the target pose defined by
+                                               <move_params>[0] and <move_params>[1]. Sample noise from a 0-mean
+                                               gaussian and add it to the r1, t, r2 differences and apply the noisy
+                                               rotations and translation to the current noisy pose.
+                                    * 'velo' :  (TODO: Future) Velocity Command
+
+        :return: None
+        """
+
         old_pos = np.concatenate((self._noisy_position, self._noisy_orientation))
 
         if move_cmd['type'] == 'pose':
@@ -393,7 +458,7 @@ class MapSimulator2D:
                                                            np.array([np.cos(theta1), np.sin(theta1)]).flatten())
             self._noisy_orientation = theta1 + delta_rot2_hat
 
-        elif move_cmd['type'] == "velocity":
+        elif move_cmd['type'] == "velo":
             # TODO
             pass
 
@@ -402,6 +467,11 @@ class MapSimulator2D:
         self._increment_time(self._params['move_time_interval'])
 
     def _compute_sensor_pose(self):
+        """
+        Computes the real sensor pose from the real robot pose and the base_to_laser_tf transform.
+
+        :return: None
+        """
         tf_trans = np.array(self._params['base_to_laser_tf'][0])
         tf_rot = np.array(self._params['base_to_laser_tf'][1])
 
@@ -412,6 +482,16 @@ class MapSimulator2D:
         self._sensor_orientation = self._real_orientation + tf_rot
 
     def _ray_trace(self):
+        """
+        Generates a set of laser measurements starting from the laser sensor pose until the beams either hit an obstacle
+        or reach the maximum range.
+
+        :return: (tuple) Tuple comprised of:
+                             * bearing_ranges: ndarray of measurement angles
+                             * endpoints: ndarray of (x,y) points where the laser hit or reached max_range,
+                             * hits: ndarray of boolean values stating whether the beam hit an obstacle.
+                                     True for hit, False for max_range measurement.
+        """
 
         bearing_ranges = []
         endpoints = []
@@ -462,6 +542,16 @@ class MapSimulator2D:
         return bearing_ranges, endpoints, hits
 
     def _add_tf_msg(self, bag, ground_truth=False, update_laser_tf=True):
+        """
+        Publishes a tf transform message to the ROSBag file with the real/noisy pose of the robot
+        and (optionally) the laser sensor pose.
+
+        :param bag: Open ROSBag file handler where the message will be stored.
+        :param ground_truth: (bool) Publish real pose if True, noisy pose if False.
+        :param update_laser_tf: (bool) Also publish real laser pose if True.
+
+        :return: None
+        """
 
         if bag is None:
             return
@@ -538,10 +628,22 @@ class MapSimulator2D:
 
         bag.write("/tf", tf2_msg, self._current_time)
 
+        # Only increment sequence for noisy pose, that way both the real and noisy pose messages will have the same
+        # sequence for a given movement.
         if not ground_truth:
             self._tf_msg_seq += 1
 
     def _add_scan_msg(self, bag, measurements, ground_truth=False):
+        """
+        Publish a LaserScan message to a ROSBag file with the given measurement ranges.
+
+        :param bag: Open ROSBag file handler where the message will be stored.
+        :param measurements: (ndarray) 2D Array of measurements to be published.
+                                       Measured ranges must be in measurements[:, 1]
+        :param ground_truth: (bool) Determines to which topic to publish. True for real measurements, False for noisy.
+
+        :return: None
+        """
 
         if bag is None:
             return
@@ -577,6 +679,14 @@ class MapSimulator2D:
             self._increment_time(self._params['scan_time_interval'])
 
     def _increment_time(self, ms):
+        """
+        Increment the internal simulated time variable by a given amount.
+
+        :param ms: (float) Time in miliseconds to increment the time.
+
+        :return: None
+        """
+
         secs = ms
         nsecs = secs
         secs = int(secs / 1000)
@@ -585,6 +695,14 @@ class MapSimulator2D:
         self._current_time += rospy.Duration(secs, nsecs)
 
     def _draw_map(self, ax):
+        """
+        Draw the map's obstacles.
+
+        :param ax: Matplotlib axes object to draw to.
+
+        :return: None
+        """
+
         for obstacle in self._obstacles:
             if isinstance(obstacle, Polygon):
                 vertices = obstacle.vertices.transpose()
@@ -592,6 +710,14 @@ class MapSimulator2D:
                         fill=False, alpha=obstacle.opacity)
 
     def _draw_robot(self, ax, real=False):
+        """
+        Draw the robot's real/noisy pose.
+
+        :param ax: Matplotlib axes object to draw to.
+        :param real: (bool) Draw the real pose if True, the noisy one if False.
+
+        :return: None
+        """
         robot_size = 0.05
 
         if real:
@@ -622,6 +748,16 @@ class MapSimulator2D:
         return robot_base
 
     def _draw_beams(self, ax, beams, hits):
+        """
+        Draw each of the laser measurement beams from the robot's real pose.
+
+        :param ax: Matplotlib axes object to draw to.
+        :param beams: (ndarray|None) List of the beams' endpoints (x, y). None to not display the measurements.
+        :param hits: (ndarray) List of booleans stating for each beam whether it hit an obstacle (True)
+                               or reached max_range (False).
+
+        :return: None
+        """
         if beams is None:
             return
 
