@@ -21,17 +21,18 @@ class MapColorizer:
         """
         Constructor. Initializes the MapColorizer Object.
 
-        :param wm_extent: (list) World map extension in world units. Used for the values of the image ticks.
-                                 E.g.: [x0, x1, y0, y1]
+        :param wm_extent: (list)[Default: None] World map extension in world units.
+                                                Used for the values of the image ticks.
+                                                E.g.: [x0, x1, y0, y1]
 
-        :param ds_list: (list) List of possible discrete state values.
-                               Used for drawing the discrete color bar. All states listed will be displayed in the bar,
-                               even if the image has no pixels with that value.
-                                 E.g.: [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED]
+        :param ds_list: (list)[Default: None] List of possible discrete state values.
+                                              Used for drawing the discrete color bar. All states listed will be
+                                              displayed in the bar, even if the image has no pixels with that value.
+                                              E.g.: [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED]
         """
 
         self._wm_extent = None
-        self._aspect_ratio = 'lower'
+        self._aspect_ratio = 'equal'
 
         self._img_origin = 'upper'
 
@@ -172,10 +173,10 @@ class MapColorizer:
 
         :param img: (numpy.ma|numpy.ndarray) Actual image to be plotted. Used only to determin its min and max values
                                              in case v_min, v_max or both are defined as None.
-        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as img.min()
-        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as img.max()
-        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
-                                     respectively if they were not defined as None.
+        :param v_min: (float|None)[Default: 0] Minimum value the map can take. If None, it will be taken as img.min()
+        :param v_max: (float|None)[Default: 1] Maximum value the map can take. If None, it will be taken as img.max()
+        :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
+                                                    last tick labels respectively if they were not defined as None.
 
         :return: None
         """
@@ -218,15 +219,15 @@ class MapColorizer:
             if v_max == 1:
                 self._tlb_ci[-1] += '\nOcc'
 
-    @staticmethod
-    def _draw_cb(fig, mappable, params, tick_labels=None):
+    def _draw_cb(self, fig, mappable, params, tick_labels=None):
         """
         Draw a color bar.
 
-        :param fig: Matplotlib Figure to add the color bar to.
-        :param mappable: A ScalarMappable (independent from any actual plot) to use as the color scale.
+        :param fig: (matplotlib.fig) Matplotlib Figure to add the color bar to.
+        :param mappable: (matplotlib.cm.ScalarMappable) A ScalarMappable (independent from any actual plot) to use
+                                                        as the color scale.
         :param params: (dict) Dictionary of arguments supported by plt.colorbar()
-        :param tick_labels: (list) list of string labels for each tick in the color bar
+        :param tick_labels: (list|None)[Default: None] list of string labels for each tick in the color bar
 
         :return: The color bar object.
         """
@@ -235,14 +236,16 @@ class MapColorizer:
 
         if tick_labels is not None:
             cb.set_ticklabels(tick_labels)
+            if self._cb_orientation == 'horizontal':
+                cb.ax.set_xticklabels(cb.ax.get_xticklabels(), rotation='vertical')
 
         return cb
 
-    def _draw_cb_disc(self, fig):
+    def draw_cb_disc(self, fig):
         """
         Draw a Discretely Valued color bar
 
-        :param fig: Matplotlib Figure to add the color bar to.
+        :param fig: (matplotlib.fig) Matplotlib Figure to add the color bar to.
 
         :return: The discrete color bar object.
         """
@@ -258,11 +261,11 @@ class MapColorizer:
 
         return self._draw_cb(fig, self._map_ds, cb_params, self._tlb_ds)
 
-    def _draw_cb_cont(self, fig):
+    def draw_cb_cont(self, fig):
         """
         Draw a Continuously Valued color bar
 
-        :param fig: Matplotlib Figure to add the color bar to.
+        :param fig: (matplotlib.fig) Matplotlib Figure to add the color bar to.
 
         :return: The continuous color bar object.
         """
@@ -282,8 +285,8 @@ class MapColorizer:
         """
         Draw the discrete portion of a map as a colored image.
 
-        :param ax: The Matplotlib axes object to plot to.
-        :param img: A masked array representing a map with discrete values.
+        :param ax: (matplotlib.ax) The Matplotlib axes object to plot to.
+        :param img: (numpy.ma) A masked array representing a map with discrete values.
 
         :return: The actual image plot object.
         """
@@ -302,12 +305,12 @@ class MapColorizer:
         """
         Draw the continuous portion of a map as a colored image.
 
-        :param ax: The Matplotlib axes object to plot to.
-        :param img: A masked array representing a map with continuous values.
-        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as img.min()
-        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as img.max()
-        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
-                                     respectively if they were not defined as None.
+        :param ax: (matplotlib.ax) The Matplotlib axes object to plot to.
+        :param img: (numpy.ma) A masked array representing a map with continuous values.
+        :param v_min: (float|None)[Default: 0] Minimum value the map can take. If None, it will be taken as img.min()
+        :param v_max: (float|None)[Default: 1] Maximum value the map can take. If None, it will be taken as img.max()
+        :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
+                                                    last tick labels respectively if they were not defined as None.
 
         :return: The actual image plot object.
         """
@@ -328,10 +331,10 @@ class MapColorizer:
         """
         Creates a Matplotlib figure.
 
-        :return: A tuple of a Matplotlib figure and axes objects.
+        :return: A tuple of empty Matplotlib figure and axes objects.
         """
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=[20, 20])
 
         ax.set_aspect(self._aspect_ratio)
 
@@ -342,25 +345,27 @@ class MapColorizer:
         Create a figure, draw the discrete map and color bar if not None, and then the continuous map and color bar.
         The figure isn't actually displayed, in case it is to be directly saved to a file.
 
-        :param cont_map: A masked array representing a map with continuous values.
-        :param ds_map: A masked array representing a map with discrete values.
-                       If None, then only the continuous part will be drawn.
-        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
-        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
-        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
-                                     respectively if they were not defined as None.
+        :param cont_map: (numpy.ma) A masked array representing a map with continuous values.
+        :param ds_map: (numpy.ma)[Default: None] A masked array representing a map with discrete values.
+                                                 If None, then only the continuous part will be drawn.
+        :param v_min: (float|None)[Default: 0] Minimum value the map can take.
+                                               If None, it will be taken as cont_map.min().
+        :param v_max: (float|None)[Default: 1] Maximum value the map can take.
+                                               If None, it will be taken as cont_map.max().
+        :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
+                                                    last tick labels respectively if they were not defined as None.
 
-        :return: A tuple of a Matplotlib figure and axes objects
+        :return: A tuple of drawn Matplotlib figure and axes objects
         """
 
         fig, ax = self._make_figure()
 
         if ds_map is not None:
             self._imshow_disc_map(ax, ds_map)
-            self._draw_cb_disc(fig)
+            self.draw_cb_disc(fig)
 
         self._imshow_cont_map(ax, cont_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
-        self._draw_cb_cont(fig)
+        self.draw_cb_cont(fig)
 
         return fig, ax
 
@@ -368,13 +373,15 @@ class MapColorizer:
         """
         Generate an RGBa [0, 1] image from a continuous and discrete map without actually plotting it using Matplotlib.
 
-        :param cont_map: A masked array representing a map with continuous values.
-        :param ds_map: A masked array representing a map with discrete values.
-                       If None, then only the continuous part will be drawn.
-        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
-        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
+        :param cont_map: (numpy.ma) A masked array representing a map with continuous values.
+        :param ds_map: (numpy.ma)[Default: None] A masked array representing a map with discrete values.
+                                                 If None, then only the continuous part will be drawn.
+        :param v_min: (float|None)[Default: 0] Minimum value the map can take.
+                                               If None, it will be taken as cont_map.min().
+        :param v_max: (float|None)[Default: 1] Maximum value the map can take.
+                                               If None, it will be taken as cont_map.max().
 
-        :return: An RGBa [0, 1] image.
+        :return: An RGBa (w, h, 4) -> [0, 1] image.
         """
 
         shape = cont_map.shape
@@ -396,13 +403,15 @@ class MapColorizer:
         Create and display a figure, draw the discrete map and color bar if not None, and then the continuous map and
         color bar.
 
-        :param cont_map: A masked array representing a map with continuous values.
-        :param ds_map: A masked array representing a map with discrete values.
-                       If None, then only the continuous part will be drawn.
-        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
-        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
-        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
-                                     respectively if they were not defined as None.
+        :param cont_map: (numpy.ma) A masked array representing a map with continuous values.
+        :param ds_map: (numpy.ma)[Default: None] A masked array representing a map with discrete values.
+                                       If None, then only the continuous part will be drawn.
+        :param v_min: (float|None)[Default: 0] Minimum value the map can take.
+                                               If None, it will be taken as cont_map.min().
+        :param v_max: (float|None)[Default: 1] Maximum value the map can take.
+                                               If None, it will be taken as cont_map.max().
+        :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
+                                                    last tick labels respectively if they were not defined as None.
 
         :return: A tuple of a Matplotlib figure and axes objects
         """
@@ -413,26 +422,31 @@ class MapColorizer:
 
         return fig, ax
 
-    def plot_save(self, path, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True):
+    def plot_save(self, path, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True, resolution=300):
         """
         Create and save without displaying a figure, draw the discrete map and color bar if not None, and then the
         continuous map and color bar.
 
         :param path: (string) Path where the resulting image is to be saved.
-        :param cont_map: A masked array representing a map with continuous values.
-        :param ds_map: A masked array representing a map with discrete values.
-                       If None, then only the continuous part will be drawn.
-        :param v_min: (float|None) Minimum value the map can take. If None, it will be taken as cont_map.min().
-        :param v_max: (float|None) Maximum value the map can take. If None, it will be taken as cont_map.max().
-        :param occupancy_map: (bool) If True, then 'Free' and 'Occ' will be appended to the first and last tick labels
-                                     respectively if they were not defined as None.
+        :param cont_map: (numpy.ma) A masked array representing a map with continuous values.
+        :param ds_map: (numpy.ma)[Default: None] A masked array representing a map with discrete values.
+                                                 If None, then only the continuous part will be drawn.
+        :param v_min: (float|None)[Default: 0] Minimum value the map can take.
+                                               If None, it will be taken as cont_map.min().
+        :param v_max: (float|None)[Default: 1] Maximum value the map can take.
+                                               If None, it will be taken as cont_map.max().
+        :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
+                                                    last tick labels respectively if they were not defined as None.
+        :param resolution: (int)[Default: 300] Resolution of the saved image in DPI.
 
         :return: None
         """
 
-        self._draw_plot(cont_map, ds_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
+        fig, ax = self._draw_plot(cont_map, ds_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
 
-        plt.savefig(path, bbox_inches='tight')
+        plt.savefig(path, bbox_inches='tight', dpi=resolution)
+
+        plt.close(fig)
 
 
 if __name__ == '__main__':
