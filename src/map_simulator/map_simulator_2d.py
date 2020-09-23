@@ -328,8 +328,9 @@ class MapSimulator2D:
 
         axes = None
 
-        self._add_tf_msg(bag)
-        self._add_tf_msg(bag, ground_truth=True)
+        # Publish Initial Pose
+        self._add_tf_msg(bag, publish_map_odom=True)  # Publish map-odom tf 0-transform while SLAM warms up
+        self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True, increment_seq=True)
 
         if display:
             plt.ion()
@@ -343,8 +344,9 @@ class MapSimulator2D:
 
             self._move(move)
 
+            # Publish pose after move
             self._add_tf_msg(bag)
-            self._add_tf_msg(bag, ground_truth=True)
+            self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True)
 
             if display:
                 self._render(axes, pause=self._params['render_move_pause'])
@@ -363,8 +365,8 @@ class MapSimulator2D:
                 self._add_scan_msg(bag, noisy_meas)
                 self._add_scan_msg(bag, measurements, ground_truth=True)
 
+                # Publish pose after each measurement, otherwise gmapping doesn't process the scans
                 self._add_tf_msg(bag)
-                self._add_tf_msg(bag, ground_truth=True)
 
                 if display:
                     if self._params['deterministic']:
@@ -379,6 +381,9 @@ class MapSimulator2D:
 
                     self._render(axes, noisy_endpoints, hits, pause=self._params['render_sense_pause'])
                     self._render(axes, pause=self._params['render_move_pause'] - self._params['render_sense_pause'])
+
+            # Publish the ground truth after all scans just for good measure and as a way of incrementing the seq number
+            self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True, increment_seq=True)
 
         if bag is not None:
             bag.close()
@@ -541,14 +546,16 @@ class MapSimulator2D:
 
         return bearing_ranges, endpoints, hits
 
-    def _add_tf_msg(self, bag, ground_truth=False, update_laser_tf=True):
+    def _add_tf_msg(self, bag, ground_truth=False, update_laser_tf=True, publish_map_odom=False, increment_seq=False):
         """
         Publishes a tf transform message to the ROSBag file with the real/noisy pose of the robot
         and (optionally) the laser sensor pose.
 
         :param bag: Open ROSBag file handler where the message will be stored.
-        :param ground_truth: (bool) Publish real pose if True, noisy pose if False.
-        :param update_laser_tf: (bool) Also publish real laser pose if True.
+        :param ground_truth: (bool)[Default: False] Publish real pose if True, noisy pose if False.
+        :param update_laser_tf: (bool)[Default: True] Also publish real laser pose if True.
+        :param publish_map_odom: (bool)[Default: False] Publish the map->odom tf transform if True.
+        :param increment_seq: (bool)[Default: False] Increment the sequence number in the tf message's header if True.
 
         :return: None
         """
@@ -563,6 +570,14 @@ class MapSimulator2D:
             posy = float(self._real_position[1])
             theta = float(self._real_orientation)
             frame_prefix = self._params["gt_prefix"]
+
+        else:
+            posx = float(self._noisy_position[0])
+            posy = float(self._noisy_position[1])
+            theta = float(self._noisy_orientation)
+            frame_prefix = ""
+
+        if publish_map_odom:
 
             tf_map_odom_msg = TransformStamped()
 
@@ -580,12 +595,6 @@ class MapSimulator2D:
             tf_map_odom_msg.transform.rotation.w = quaternion[3]
 
             tf2_msg.transforms.append(tf_map_odom_msg)
-
-        else:
-            posx = float(self._noisy_position[0])
-            posy = float(self._noisy_position[1])
-            theta = float(self._noisy_orientation)
-            frame_prefix = ""
 
         tf_odom_robot_msg = TransformStamped()
 
@@ -630,7 +639,7 @@ class MapSimulator2D:
 
         # Only increment sequence for noisy pose, that way both the real and noisy pose messages will have the same
         # sequence for a given movement.
-        if not ground_truth:
+        if increment_seq:
             self._tf_msg_seq += 1
 
     def _add_scan_msg(self, bag, measurements, ground_truth=False):
