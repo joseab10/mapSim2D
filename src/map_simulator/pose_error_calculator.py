@@ -5,7 +5,6 @@ import tf2_ros
 from tf import TransformerROS
 from tf.transformations import quaternion_multiply, quaternion_conjugate, decompose_matrix, quaternion_from_euler
 
-
 # ROS Message Libraries
 from tf2_msgs.msg import TFMessage
 from std_msgs.msg import Float64
@@ -20,6 +19,15 @@ import datetime
 
 
 def frame_eq(tf1, tf2):
+    """
+    Function for determining whether two TF chains are equal by ignoring slashes
+
+    :param tf1: (string) First TF frame chain
+    :param tf2: (string) Second TF frame chain
+
+    :return: (bool) True if tf1 and tf2 represent the same path ignoring slashes
+    """
+
     tf1_list = filter(None, tf1.split('/'))
     tf2_list = filter(None, tf2.split('/'))
 
@@ -27,32 +35,17 @@ def frame_eq(tf1, tf2):
     return eq
 
 
-# def quat_mult(q1, q2):
-#     w1, x1, y1, z1 = q1
-#     w2, x2, y2, z2 = q2
-#
-#     w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-#     x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-#     y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
-#     z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
-#
-#     return w, x, y, z
-
-
-# def quat_conj(q):
-#     w, x, y, z = q
-#
-#     return w, -x, -y, -z
-
-
 def quaternion_axis_angle(q):
+    """
+    Convert a rotation expressed as a quaternion into a 3D vector
+    representing the axis of rotation and the rotation angle in radians.
+
+    :param q: (list|tuple) A quaternion (x, y, z, w)
+
+    :return: (numpy.array, float) A tuple containting a 3D numpy vector and the angle as float
+    """
+
     w, v = q[3], q[0:2]
-
-    # a = np.array(v)
-    # a = np.matmul(a, a)
-    # a = np.sqrt(a)
-
-    # theta = np.arctan2(a, w)
     theta = np.arccos(w) * 2
     return v, theta
 
@@ -60,6 +53,10 @@ def quaternion_axis_angle(q):
 class PoseErrorCalculator:
 
     def __init__(self):
+        """
+        Initialize the PoseErrorCalculator object, the ROS node,
+        get the parameters and keep the node alive (spin)
+        """
 
         rospy.init_node('pose_error_calc')
 
@@ -127,6 +124,18 @@ class PoseErrorCalculator:
         rospy.spin()
 
     def _tf_callback(self, msg):
+        """
+        Function called whenever a TF message is received.
+        It tries to store the transforms for the Ground Truth pose (map->GT/base_link),
+        and the SLAM pose (map->odom, odom->base_link), and only process them once the
+        ground truth message's sequence changes to use the latest poses and allow the
+        the SLAM algorithm to register all scans and compute the correction transform.
+        If configured, it will publish the error as a float64 message and log to a CSV file.
+
+        :param msg: (tf2_msgs.TFMessage) TF Messages
+
+        :return: None
+        """
 
         pose_acq = False
         seq_chgd = False
@@ -220,11 +229,6 @@ class PoseErrorCalculator:
             rot_error = rot_error * rot_error
             self._cum_rot_err += rot_error
 
-            # Normalize rotational error (0
-            # self._cum_rot_err = self._cum_rot_err % (2 * np.pi)
-            # if self._cum_rot_err < 0:
-            #    self._cum_rot_err += 2 * np.pi
-
             tot_error = trans_error + self._lambda * rot_error
             self._cum_tot_err += tot_error
 
@@ -250,6 +254,24 @@ class PoseErrorCalculator:
             self._last_sl_ob_pose = sl_ob_pose
 
     def _append_row(self, seq, ts, gt_pose, slam_pose, rel_pose, trans_err, rot_err, tot_err):
+        """
+        Append a row to the CSV file with the poses and errors
+
+        :param seq: (int) Sequence number of the Ground Truth Pose message
+        :param ts: (rospy.Time) Timestamp of the Ground Truth Pose message
+        :param gt_pose: (tuple) Ground Truth Pose and orientation ([x, y, z], [x, y, z, w])
+        :param slam_pose: (tuple) SLAM Pose and orientation ([x, y, z], [x, y, z, w])
+        :param rel_pose: (tuple) Relative Pose and orientation ([x, y, z], [x, y, z, w])
+        :param trans_err: (float) Step translational error
+        :param rot_err: (float) Step rotational error
+        :param tot_err: (float) Step total error
+
+        :return: None
+        """
+
+        if not self._log_error:
+            return
+
         gt_p_x, gt_p_y, gt_p_z = gt_pose[0]
         gt_r_x, gt_r_y, gt_r_z, gt_r_w = gt_pose[1]
         sl_p_x, sl_p_y, sl_p_z = slam_pose[0]
@@ -266,7 +288,6 @@ class PoseErrorCalculator:
             rot_err, self._cum_rot_err,
             tot_err, self._cum_tot_err
         ]
-        # self._pose_history.append(row)
 
         row_str = self._delim.join([str(x) for x in row])
         row_str += self._newline
@@ -277,6 +298,11 @@ class PoseErrorCalculator:
             f.write(row_str)
 
     def _init_log(self):
+        """
+        Initialize the CSV log file by adding the column headers.
+
+        :return: None
+        """
 
         if not self._log_error:
             return
