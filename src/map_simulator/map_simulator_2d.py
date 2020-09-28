@@ -112,6 +112,8 @@ class MapSimulator2D:
             "scan_topic": {"def": "base_scan", "desc": "ROS Topic for scan messages"},
 
             "deterministic": {"def": False,           "desc": "Deterministic process"},
+
+            "move_noise_type": {"def": "odom", "desc": "Type of movement noise [linear|odom]"},
             "pose_sigma": {"def": [[0., 0., 0.],
                                    [0., 0., 0.],
                                    [0., 0., 0.]], "desc": "Movement by Pose Covariance Matrix (3x3)"},
@@ -159,37 +161,11 @@ class MapSimulator2D:
         else:
             self._current_time = rospy.Time(int(self._params['initial_timestamp']))
 
-        self._moves = []
-
         # Message Counters
         self._laser_msg_seq = 0
         self._tf_msg_seq = 0
 
-        try:
-            self._moves = config['move_commands']
-        except KeyError:
-            rospy.logwarn("No moves defined in config file. Considering only starting position")
-
-        # Take into account robot moves for display box
-        for move in self._moves:
-            pos = move["params"][0]
-            if pos[0] < minx:
-                minx = move[0]
-            if pos[0] > maxx:
-                maxx = move[0]
-            if pos[1] < miny:
-                miny = move[1]
-            if pos[1] > maxy:
-                maxy = move[1]
-
-        # Add a margin of either the max range of the sensor (too large) or just 1m
-        # margin = self._params["max_range"] + 1
-        margin = 1
-        self.min_x = minx - margin
-        self.min_y = miny - margin
-        self.max_x = maxx + margin
-        self.max_y = maxy + margin
-
+        # Initial Position and Orientation
         self._noisy_position = np.zeros(2)
         self._noisy_orientation = np.zeros(1)
         self._sensor_position = np.zeros(2)
@@ -210,6 +186,42 @@ class MapSimulator2D:
             rospy.logwarn("No initial orientation defined in config file. Starting with theta=0")
 
         self._compute_sensor_pose()
+
+        moves = []
+        try:
+            moves = config['move_commands']
+        except KeyError:
+            rospy.logwarn("No moves defined in config file. Considering only starting position")
+
+        # Generate Pose list from move commands
+        self._pose_list = []
+        pp = self._real_position
+        po = self._real_orientation
+        for move in moves:
+            poses = self._get_poses(move, prev_pose=pp, prev_orientation=po)
+            if poses is not None:
+                for pose in poses:
+                    pp = pose[0]
+                    po = pose[1]
+                    self._pose_list.append([pp, po])
+
+                    # Take into account robot moves for display box
+                    if pp[0] < minx:
+                        minx = move[0]
+                    if pp[0] > maxx:
+                        maxx = move[0]
+                    if pp[1] < miny:
+                        miny = move[1]
+                    if pp[1] > maxy:
+                        maxy = move[1]
+
+        # Add a margin of either the max range of the sensor (too large) or just 1m
+        # margin = self._params["max_range"] + 1
+        margin = 1
+        self.min_x = minx - margin
+        self.min_y = miny - margin
+        self.max_x = maxx + margin
+        self.max_y = maxy + margin
 
     @staticmethod
     def _set_dict_param(in_dict, self_dict, key, param_name, default):
@@ -340,9 +352,9 @@ class MapSimulator2D:
 
             self._render(axes, pause=self._params['render_move_pause'])
 
-        for move in self._moves:
+        for pose in self._pose_list:
 
-            self._move(move)
+            self._move(pose)
 
             # Publish pose after move
             self._add_tf_msg(bag)
@@ -359,7 +371,7 @@ class MapSimulator2D:
                     meas_noise = np.zeros(2)
                 else:
                     meas_noise = np.random.multivariate_normal(np.zeros(2), self._params['measurement_sigma'],
-                                                               size=measurements.shape[0])
+                                                           size=measurements.shape[0])
                     noisy_meas = measurements + meas_noise
 
                 self._add_scan_msg(bag, noisy_meas)
@@ -385,71 +397,223 @@ class MapSimulator2D:
             # Publish the ground truth after all scans just for good measure and as a way of incrementing the seq number
             self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True, increment_seq=True)
 
+        rospy.loginfo("Finished simulation")
         if bag is not None:
             bag.close()
+            rospy.loginfo("Rosbag saved and closed")
 
-            rospy.loginfo("Finished simulation and saved to rosbag")
-
-    def _move(self, move_cmd):
+    def _get_poses(self, move_cmd, prev_pose=None, prev_orientation=None):
         """
-        Simulate a change in the robot pose by following a move command and adding noise.
-        It updates both the real and the noisy positions, and recomputes the laser pose.
-        It also increments the time according to the move_time_interval parameter.
+        Generates the pose(s) [[x, y], theta] from move command dictionaries
 
-        :param move_cmd: (dict) Move command comprised of a type and additional parameters.
-                                {'type': <move_type>, 'params': <move_params>}
-                                Currently supported types:
-                                    * 'pose' : take <move_params>[0] directly as the target position and
-                                               <move_params>[1] as the target orientation. Sample noise from a 0-mean
-                                               gaussian and add it to the target position.
-                                    * 'odom' : compute the difference in initial rotation r1, translation t and final
-                                               rotation r2 between the current real pose and the target pose defined by
-                                               <move_params>[0] and <move_params>[1]. Sample noise from a 0-mean
-                                               gaussian and add it to the r1, t, r2 differences and apply the noisy
-                                               rotations and translation to the current noisy pose.
-                                    * 'velo' :  (TODO: Future) Velocity Command
+        :param move_cmd: (dict) Movement command dictionary with format:
+                                {"type": <mv_type>, "<par1_key>": <par1_val>, "<par2_key>": <par2_val>, ...}
+                                Supported types are:
+                                    * "comment": Ignored, used just for commenting JSON files
+                                    * "pose": Directly returns the pose given by "params": [[x, y], th]
+                                    * "odom": Directly returns the pose given by "params": [[x, y], th]
+                                    * "linear": Linear interpolation between "start": [x0, y0] (optional)
+                                                and "end": [x1, y1] with "steps": n steps.
+                                                If "start" is not given, current position is used as start point.
+                                                Theta is defined as the angle of the line w.r.t. x for the entire move.
+                                    * "interpolation": Linear interpolation between starting pose "start": [x0, y0]
+                                                       and "start_angle": th0, and end pose "end": [x1, y1]
+                                                       and "end_angle": th1, in "steps": n steps.
+                                                       Unlike "linear", the angle is also linearly interpolated between
+                                                       start and end poses.
+                                                       If "start" and "start_angle" are omitted, current pose is used.
+                                    * "rotation": In-place rotation without movement between "start": th0 (optional)
+                                                  and "end": th1 in direction "dir": "cw"|"ccw" (clockwise or
+                                                  counterclockwise) in "steps": n steps.
+                                                  If "start" is omitted, current orientation is used as starting point.
+                                                  Current pose is preserved during each step.
+                                    * "circular": Circular path from "start": [x0, y0] (optional)
+                                                  ending in "end": [x1, y1] around "center": [cx0, cy0]
+                                                  in direction "dir": "cw"|"ccw" (clockwise or counterclockwise)
+                                                  in "steps": n steps.
+                                                  Because of possible errors between center, start and end, the turning
+                                                  radius is the average between the center-start and center-end lengths.
+                                                  If "start" is omitted, current pose is used.
+                                                  Angle th is computed as tangential to the circular path in each step.
+
+        :return: (list) List of poses [..., [[x, y], th], ...]
+        """
+
+        mtype = str(move_cmd['type']).lower()
+
+        if prev_pose is None:
+            prev_pose = self._real_position
+        if prev_orientation is None:
+            prev_orientation = self._real_orientation
+
+        prev_pose = np.array(prev_pose)
+
+        if mtype == "pose" or mtype == "odom":
+            return move_cmd['params']
+
+        if mtype == "linear":
+            if "start" in move_cmd:
+                start = np.array(move_cmd['start'])
+                rm_first_row = False
+            else:
+                start = prev_pose
+                rm_first_row = True
+
+            end = np.array(move_cmd['end'])
+            steps = move_cmd['steps']
+
+            diff = end - start
+            theta = np.arctan2(diff[1], diff[0])
+            if theta > np.pi:
+                theta -= 2 * np.pi
+            if theta < -np.pi:
+                theta += 2 * np.pi
+
+            poses = np.linspace(start, end, num=steps)
+            poses = [[[p[0], p[1]], theta] for p in poses]
+
+            if rm_first_row:
+                poses = poses[1:]
+
+            return poses
+
+        if mtype == "rotation":
+            if "start" in move_cmd:
+                start = move_cmd['start']
+                rm_first_row = False
+            else:
+                start = prev_orientation
+                rm_first_row = True
+
+            cw = True
+            if "dir" in move_cmd:
+                if move_cmd['dir'] == "ccw":
+                    cw = False
+
+            end = move_cmd['end']
+            steps = move_cmd['steps']
+
+            if cw and start < end:
+                end -= 2 * np.pi
+            if not cw and start > end:
+                end += 2 * np.pi
+
+            theta = np.linspace(start, end, num=steps)
+            theta[theta > np.pi] -= 2 * np.pi
+            theta[theta < -np.pi] += 2 * np.pi
+
+            poses = [[prev_pose, th] for th in theta]
+
+            if rm_first_row:
+                poses = poses[1:]
+
+            return poses
+
+        if mtype == "circular":
+            if "start" in move_cmd:
+                start = np.array(move_cmd['start'])
+                rm_first_row = False
+            else:
+                start = prev_pose
+                rm_first_row = True
+
+            cw = True
+            if "dir" in move_cmd:
+                if move_cmd['dir'] == "ccw":
+                    cw = False
+
+            end = np.array(move_cmd['end'])
+            center = np.array(move_cmd['center'])
+            steps = move_cmd['steps']
+
+            start_diff = start - center
+            start_angle = np.arctan2(start_diff[1], start_diff[0])
+            end_diff = end - center
+            end_angle = np.arctan2(end_diff[1], end_diff[0])
+
+            if cw and start_angle < end_angle:
+                end_angle -= 2 * np.pi
+            if not cw and start_angle > end_angle:
+                end_angle += 2 * np.pi
+
+            radius = np.sqrt(np.dot(start_diff, start_diff))
+            radius += np.sqrt(np.dot(end_diff, end_diff))
+            radius /= 2
+
+            angles = np.linspace(start_angle, end_angle, num=steps)
+
+            poses_x = center[0] + radius * np.cos(angles)
+            poses_y = center[1] + radius * np.sin(angles)
+            thetas = angles + np.pi / 2
+            thetas[thetas > np.pi] -= 2 * np.pi
+            thetas[thetas < -np.pi] += 2 * np.pi
+
+            poses = [[[poses_x[i], poses_y[i]], thetas[i]] for i in range(angles.shape[0])]
+
+            if rm_first_row:
+                poses = poses[1:]
+
+            return poses
+
+        if mtype == "interpolation":
+            start = prev_pose
+            start_theta = prev_orientation
+            end = move_cmd['end']
+            end_theta = move_cmd['end_angle']
+            steps = move_cmd['steps']
+
+            poses = np.linspace(start, end, num=steps)
+            thetas = np.linspace(start_theta, end_theta, num=steps)
+
+            poses = [[poses[i], thetas[i]] for i in range(thetas.shape[0])]
+            poses = poses[1:]
+
+            return poses
+
+        return None
+
+    def _move(self, pose):
+        """
+        Take a real pose and add noise to it. Then recompute the laser sensor pose and increment the time.
+        If the parameter "deterministic" is set to True, then both the real and noisy poses will be equal.
+        Otherwise, tne noisy pose will be computed depending on the "move_noise_type" parameter, which can be:
+            * "odom": The movement is modeled as an initial rotation, then a translation and finally another rotation.
+                      Noise is added to each of these steps as a weighted sum of the actual displacements with weights
+                      defined by "odometry_alpha": [a1, a2, a3, a4].
+            * "linear": Zero-mean gaussian noise with covariance matrix
+                        "pose_sigma": [[sxx, sxy, sxth], [syx, syy, syth], [sthx, sthy, sthth]]
+                        is added to the target pose.
+
+        :param pose: (list) Next pose of the robot defined as [[x, y], th]
 
         :return: None
         """
 
         old_pos = np.concatenate((self._noisy_position, self._noisy_orientation))
 
-        if move_cmd['type'] == 'pose':
+        target_position = np.array(pose[0])
+        target_orientation = np.array(pose[1])
 
-            if self._params['deterministic']:
-                noise = np.zeros_like(old_pos)
-            else:
-                noise = np.random.multivariate_normal(np.zeros_like(old_pos), self._params['pose_sigma'])
+        if self._params['deterministic']:
+            self._noisy_position = target_position
+            self._noisy_orientation = target_orientation
 
-            target_position = np.array(move_cmd['params'][0])
-            target_orientation = np.array(move_cmd['params'][1])
+        else:
+            # Rotation/Translation/Rotation error
+            if self._params['move_noise_type'] == "odom":
 
-            self._real_position = target_position
-            self._real_orientation = target_orientation
+                # Compute delta in initial rotation, translation, final rotation
+                delta_trans = target_position - self._real_position
+                delta_rot1 = np.arctan2(delta_trans[1], delta_trans[0]) - self._real_orientation
+                delta_rot2 = target_orientation - self._real_orientation - delta_rot1
+                delta_trans = np.matmul(delta_trans, delta_trans)
+                delta_trans = np.sqrt(delta_trans)
 
-            self._noisy_position = np.array(target_position + noise[0:1]).flatten()
-            self._noisy_orientation = np.array(target_orientation + noise[2]).flatten()
+                delta_rot1_hat = delta_rot1
+                delta_trans_hat = delta_trans
+                delta_rot2_hat = delta_rot2
 
-        elif move_cmd['type'] == "odom":
-
-            target_position = np.array(move_cmd['params'][0])
-            target_orientation = np.array(move_cmd['params'][1])
-
-            # Compute delta in initial rotation, translation, final rotation
-            delta_trans = target_position - self._real_position
-            delta_rot1 = np.arctan2(delta_trans[1], delta_trans[0]) - self._real_orientation
-            delta_rot2 = target_orientation - self._real_orientation - delta_rot1
-            delta_trans = np.matmul(delta_trans, delta_trans)
-            delta_trans = np.sqrt(delta_trans)
-
-            delta_rot1_hat = delta_rot1
-            delta_trans_hat = delta_trans
-            delta_rot2_hat = delta_rot2
-
-            self._real_position = target_position
-            self._real_orientation = target_orientation
-            # Add Noise
-            if not self._params['deterministic']:
+                # Add Noise
                 alpha = self._params['odometry_alpha']
                 delta_rot1_hat += np.random.normal(0, alpha[0] * np.abs(delta_rot1)
                                                    + alpha[1] * delta_trans)
@@ -458,14 +622,21 @@ class MapSimulator2D:
                 delta_rot2_hat += np.random.normal(0, alpha[0] * np.abs(delta_rot2)
                                                    + alpha[1] * delta_trans)
 
-            theta1 = self._noisy_orientation + delta_rot1_hat
-            self._noisy_position = self._noisy_position + (delta_trans_hat *
+                theta1 = self._noisy_orientation + delta_rot1_hat
+                self._noisy_position = self._noisy_position + (delta_trans_hat *
                                                            np.array([np.cos(theta1), np.sin(theta1)]).flatten())
-            self._noisy_orientation = theta1 + delta_rot2_hat
+                self._noisy_orientation = theta1 + delta_rot2_hat
 
-        elif move_cmd['type'] == "velo":
-            # TODO
-            pass
+            # Linear error
+            else:
+
+                noise = np.random.multivariate_normal(np.zeros_like(old_pos), self._params['pose_sigma'])
+
+                self._noisy_position = np.array(target_position + noise[0:1]).flatten()
+                self._noisy_orientation = np.array(target_orientation + noise[2]).flatten()
+
+        self._real_position = target_position
+        self._real_orientation = target_orientation
 
         # Recompute sensor pose from new robot pose
         self._compute_sensor_pose()
