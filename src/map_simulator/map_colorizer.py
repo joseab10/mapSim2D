@@ -140,6 +140,17 @@ class MapColorizer:
         :return: None
         """
 
+        if not ds_list:
+            self._ds_list = []
+            self._clr_ds = []
+            self._cmp_ds = []
+            self._tks_ds = []
+            self._tlb_ds = []
+            self._bnd_ds = []
+            self._nrm_ds = []
+            self._map_ds = []
+            return
+
         self._ds_list = DiSt.sort_ds_list(ds_list)
 
         self._clr_ds = DiSt.get_colors(ds_list)    # Color list for discrete states
@@ -200,7 +211,7 @@ class MapColorizer:
             self._cb_ci_extend = 'both'
 
         else:
-            self._cmp_ci = mpl.cm.get_cmap('afmhot_r')
+            self._cmp_ci = mpl.cm.get_cmap('plasma_r')
 
         tick_step = float(self._v_max - self._v_min) / self._cb_tick_count
         self._tks_ci = np.arange(self._v_min, self._v_max + tick_step, tick_step)
@@ -215,7 +226,7 @@ class MapColorizer:
 
         if occupancy_map:
             if v_min == 0:
-                self._tlb_ci[0] +=  '\nFree'
+                self._tlb_ci[0] += '\nFree'
             if v_max == 1:
                 self._tlb_ci[-1] += '\nOcc'
 
@@ -249,6 +260,9 @@ class MapColorizer:
 
         :return: The discrete color bar object.
         """
+
+        if not self._ds_list:
+            return None
 
         cb_params = {
             'cmap':        self._cmp_ds,
@@ -301,21 +315,15 @@ class MapColorizer:
 
         return ax.imshow(img, **params)
 
-    def _imshow_cont_map(self, ax, img, v_min=0, v_max=1, occupancy_map=True):
+    def _imshow_cont_map(self, ax, img):
         """
         Draw the continuous portion of a map as a colored image.
 
         :param ax: (matplotlib.ax) The Matplotlib axes object to plot to.
         :param img: (numpy.ma) A masked array representing a map with continuous values.
-        :param v_min: (float|None)[Default: 0] Minimum value the map can take. If None, it will be taken as img.min()
-        :param v_max: (float|None)[Default: 1] Maximum value the map can take. If None, it will be taken as img.max()
-        :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
-                                                    last tick labels respectively if they were not defined as None.
 
         :return: The actual image plot object.
         """
-
-        self.set_cont_bounds(img, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
 
         params = {
             'cmap': self._cmp_ci,
@@ -340,7 +348,7 @@ class MapColorizer:
 
         return fig, ax
 
-    def _draw_plot(self, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True):
+    def _draw_plot(self, cont_map, ds_map=None, ds_list=None, v_min=0, v_max=1, occupancy_map=True):
         """
         Create a figure, draw the discrete map and color bar if not None, and then the continuous map and color bar.
         The figure isn't actually displayed, in case it is to be directly saved to a file.
@@ -361,25 +369,24 @@ class MapColorizer:
         fig, ax = self._make_figure()
 
         if ds_map is not None:
+            if ds_list is not None:
+                self.set_disc_state_list(ds_list)
             self._imshow_disc_map(ax, ds_map)
             self.draw_cb_disc(fig)
 
-        self._imshow_cont_map(ax, cont_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
+        self.set_cont_bounds(cont_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
+        self._imshow_cont_map(ax, cont_map)
         self.draw_cb_cont(fig)
 
         return fig, ax
 
-    def colorize(self, cont_map, ds_map=None, v_min=0, v_max=1):
+    def colorize(self, cont_map, ds_map=None):
         """
         Generate an RGBa [0, 1] image from a continuous and discrete map without actually plotting it using Matplotlib.
 
         :param cont_map: (numpy.ma) A masked array representing a map with continuous values.
         :param ds_map: (numpy.ma)[Default: None] A masked array representing a map with discrete values.
                                                  If None, then only the continuous part will be drawn.
-        :param v_min: (float|None)[Default: 0] Minimum value the map can take.
-                                               If None, it will be taken as cont_map.min().
-        :param v_max: (float|None)[Default: 1] Maximum value the map can take.
-                                               If None, it will be taken as cont_map.max().
 
         :return: An RGBa (w, h, 4) -> [0, 1] image.
         """
@@ -392,7 +399,6 @@ class MapColorizer:
             ds_map = self._nrm_ds(ds_map)
             rgba_img += self._cmp_ds(ds_map)
 
-        self.set_cont_bounds(cont_map, v_min=v_min, v_max=v_max)
         cont_map = self._nrm_ci(cont_map)
         rgba_img += self._cmp_ci(cont_map)
 
@@ -422,7 +428,8 @@ class MapColorizer:
 
         return fig, ax
 
-    def plot_save(self, path, cont_map, ds_map=None, v_min=0, v_max=1, occupancy_map=True, resolution=300):
+    def plot_save(self, path, cont_map, ds_map=None,
+                  ds_list=None, v_min=0, v_max=1, occupancy_map=True, resolution=300):
         """
         Create and save without displaying a figure, draw the discrete map and color bar if not None, and then the
         continuous map and color bar.
@@ -431,6 +438,10 @@ class MapColorizer:
         :param cont_map: (numpy.ma) A masked array representing a map with continuous values.
         :param ds_map: (numpy.ma)[Default: None] A masked array representing a map with discrete values.
                                                  If None, then only the continuous part will be drawn.
+        :param ds_list: (list)[Default: None] List of possible discrete state values.
+                                              Used for drawing the discrete color bar. All states listed will be
+                                              displayed in the bar, even if the image has no pixels with that value.
+                                              E.g.: [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED]
         :param v_min: (float|None)[Default: 0] Minimum value the map can take.
                                                If None, it will be taken as cont_map.min().
         :param v_max: (float|None)[Default: 1] Maximum value the map can take.
@@ -442,7 +453,8 @@ class MapColorizer:
         :return: None
         """
 
-        fig, ax = self._draw_plot(cont_map, ds_map, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
+        fig, ax = self._draw_plot(cont_map, ds_map,
+                                  ds_list=ds_list, v_min=v_min, v_max=v_max, occupancy_map=occupancy_map)
 
         plt.savefig(path, bbox_inches='tight', dpi=resolution)
 
@@ -503,7 +515,7 @@ if __name__ == '__main__':
     mean_colorizer.plot(means, means_ds, v_min=test_v_min, v_max=test_v_max, occupancy_map=test_occ)
 
     # Colorize (i.e. generate an RGBa image) from a map
-    rgba = mean_colorizer.colorize(means, means_ds, v_min=test_v_min, v_max=test_v_max)
+    rgba = mean_colorizer.colorize(means, means_ds)
     # and then display it to compare.
     plt.figure()
     plt.imshow(rgba)
