@@ -7,15 +7,17 @@
 
   "base_to_laser_tf": [[0.05, 0.0], [0]],
 
+  "move_noise_type": "odom",
+
   "pose_sigma": [[0.01, 0.0 , 0.0],
                  [0.0 , 0.01, 0.0],
                  [0.0 , 0.0 , 0.1]],
 
-  "odometry_alpha": [0.0001, 0.01 , 0.01, 0.0001],
+  "odometry_alpha": [0.01, 0.05 , 0.05, 0.01],
 
   "max_range": 20.0,
 
-  "meas_per_move": 3,
+  "meas_per_move": 1,
 
   "measurement_sigma": [[0.005, 0.0],
                         [0.0, 0.0]],
@@ -23,7 +25,7 @@
   "start_pose": [[0.5, 0.5], [0.0]],
 
   "scan_time_interval" : 50.0,
-  "move_time_interval" : 1000.0,
+  "move_time_interval" : 500.0,
   "initial_timestamp" : null,
 
   "render_move_pause": 0.15,
