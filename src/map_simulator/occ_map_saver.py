@@ -3,7 +3,6 @@ import rospy
 
 # ROS Messages
 from nav_msgs.msg import OccupancyGrid
-from std_msgs.msg import Header
 
 # Math Libraries
 import matplotlib.pyplot as plt

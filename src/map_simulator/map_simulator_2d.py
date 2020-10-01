@@ -1,6 +1,5 @@
 # ROS Libraries
 import rospy
-import tf
 from tf.transformations import quaternion_from_euler
 import rosbag
 
@@ -22,7 +21,8 @@ from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 from collections import deque
 
 # Project Libraries
-from map_simulator.geometry import Line, Polygon, rotate2d
+from map_simulator.geometry.primitives import Line, Polygon
+from map_simulator.geometry.transform import rotate2d
 from map_simulator.map_utils import tf_frame_normalize, tf_frame_join
 
 
