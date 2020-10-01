@@ -3,7 +3,7 @@ import rospy
 
 # ROS Messages
 from std_msgs.msg import Header
-from sensor_msgs.msg import Image  # FIXME: DELETE , CameraInfo, RegionOfInterest
+from sensor_msgs.msg import Image
 from gmapping.msg import doubleMap, mapModel
 
 # Math Libraries
@@ -48,16 +48,6 @@ class FMPPlotter:
         # Object for pseudo-coloring and plotting the maps
         self._map_colorizer = MapColorizer()
 
-        # FIXME: delete
-        # self._alpha_map_sequence = -1
-        # self._beta_map_sequence = -2
-        # self._alpha_map = None
-        # self._beta_map = None
-
-        # self._img_seq = 1
-
-        timestamp = datetime.datetime.now().strftime('%y%m%d_%H%M%S')
-
         self._sub_topic_map_model = "map_model"
         self._sub_topic_fmp_alpha = "fmp_alpha"
         self._sub_topic_fmp_beta = "fmp_beta"
@@ -77,6 +67,8 @@ class FMPPlotter:
 
         self._save_img = rospy.get_param("~save_img", True)
         self._resolution = rospy.get_param("~resolution", 300)
+
+        timestamp = datetime.datetime.now().strftime('%y%m%d_%H%M%S')
         path_prefix = rospy.get_param("~path_prefix", "exp")
         default_path = os.path.join(os.path.join(os.path.expanduser('~')), 'Desktop')
         default_path = os.path.join(default_path, 'FMP_img')
@@ -86,10 +78,6 @@ class FMPPlotter:
         save_dir = os.path.expandvars(save_dir)
         save_dir = os.path.normpath(save_dir)
         self._save_dir = save_dir
-
-        # FIXME: delete
-        # self._alpha_prior = 1
-        # self._beta_prior = 0 if self._map_model == mapModel.DECAY_MODEL else 1
 
         # Image config dictionary
         sub_img_stat_mean_cfg = {"key": "mean", "dir": os.path.join("stats", "mean"), "file_prefix": "mean",
@@ -136,34 +124,12 @@ class FMPPlotter:
                         key = img_cfg['key']
                         topic = self._topic_prefix + img_cfg['topic']  # FIXME: DELETE + '/img'
                         self._publishers[key] = rospy.Publisher(topic, Image, latch=True, queue_size=1)
-                        # FIXME: delete
-                        # cam_key = self._camera_key(key)
-                        # cam_topic = self._topic_prefix + img_cfg['topic'] + "/camera_info"
-                        # self._publishers[cam_key] = rospy.Publisher(cam_topic, CameraInfo, latch=True, queue_size=1)
 
         # Don't start the node if not needed...
         if not((self._pub_img or self._save_img) and fmp_param_sub_required):
             rospy.logerr('Nothing to do here! Why though?!?')
             rospy.signal_shutdown('Nothing to do')
             return
-
-        # FIXME: delete
-        # fx = 1.0
-        # fy = 1.0
-        # cx = 123
-        # cy = 123
-        # Tx = 0.0
-        # Ty = 0.0
-        # self._camera_info_msg = CameraInfo()
-        # self._camera_info_msg.distortion_model = "plumb_bob"
-        # self._camera_info_msg.D = [0.0, 0.0, 0.0, 0.0, 0.0]
-        # self._camera_info_msg.K = [ fx, 0.0,  cx,
-        #                            0.0,  fy,  cy,
-        #                            0.0, 0.0, 1.0]
-        # self._camera_info_msg.P = [ fx, 0.0,  cx,  Ty,
-        #                            0.0,  fy,  cy,  Tx,
-        #                            0.0, 0.0, 1.0, 0.0]
-        # self._camera_info_msg.R = 4
 
         # Create Subscribers
         # To map model
@@ -182,21 +148,6 @@ class FMPPlotter:
         rospy.Timer(rospy.Duration(2), self._plot_from_queue)
 
         rospy.spin()
-
-    # FIXME: delete
-    # @staticmethod
-    # def _camera_key(image_key):
-    #     return image_key + "_camera_info"
-
-    # def _fmp_acquired(self):
-    #    """
-    #    Checks if the map model has been received and if both alpha and beta maps have been received by comparing their
-    #    sequence numbers.
-    #
-    #    :return: True if map model, alpha and beta maps have been received, False otherwise.
-    #    """
-    #
-    #    return self._alpha_map_sequence == self._beta_map_sequence and self._map_model is not None
 
     def _plot_from_queue(self, _event):
         """
@@ -222,31 +173,8 @@ class FMPPlotter:
         FIXME
         """
 
-        # FIXME: DELETE
-        # if not self._fmp_acquired():
-        #    return
-
         if not self._pub_img and not self._save_img:
             return
-
-        # FIXME: DELETE
-        # if self._pub_img:
-            # self._camera_info_msg.header.seq = self._camera_info_msg.header.seq + 1
-            # self._camera_info_msg.header.stamp = rospy.Time.now()
-            # self._camera_info_msg.header.frame_id = 'map'
-
-            # width = self._alpha_map.shape[0]
-            # height = self._alpha_map.shape[1]
-
-            # self._camera_info_msg.width = width
-            # self._camera_info_msg.height = height
-            # self._camera_info_msg.binning_x = width
-            # self._camera_info_msg.binning_y = height
-            #
-            # roi = RegionOfInterest()
-            # roi.width = width
-            # roi.height = height
-            # self._camera_info_msg.roi = roi
 
         alpha = dic['alpha']['map'] + dic['alpha']['prior']  # FIXME: DELETE self._alpha_prior + self._alpha_map
         beta = dic['beta']['map'] + dic['beta']['prior']  # FIXME: DELETE self._beta_prior + self._beta_map
@@ -305,9 +233,6 @@ class FMPPlotter:
 
                     if self._pub_img:
                         publisher = self._publishers[img_key]
-                        # FIXME: DELETE
-                        # cam_pub_key = self._camera_key(pub_key)
-                        # cam_publisher = self._publishers[cam_pub_key]
 
                         rospy.loginfo("\t\tGenerating image message to %s.", img_key)
 
@@ -318,7 +243,7 @@ class FMPPlotter:
 
                         image_msg_head.seq = seq
                         image_msg_head.stamp = rospy.Time.now()
-                        image_msg_head.frame_id = 'map'  # TODO :
+                        image_msg_head.frame_id = 'map'
 
                         br = CvBridge()
                         image_msg = br.cv2_to_imgmsg(rgba_img, encoding="rgba8")
@@ -327,9 +252,6 @@ class FMPPlotter:
 
                         publisher.publish(image_msg)
                         del image_msg
-
-                        # FIXME: DELETE
-                        # cam_publisher.publish(self._camera_info_msg)
 
                         rospy.loginfo("\t\tImage published.")
 
