@@ -164,6 +164,10 @@ include_directories(
 catkin_install_python(
     PROGRAMS
         nodes/gt_mapping
+        nodes/fmp_plot
+        nodes/occ_map_saver
+        nodes/odom_pose
+        nodes/pose_error_calc
         scripts/mapsim2d.py
     DESTINATION
         ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -200,6 +204,16 @@ install(
     DIRECTORY
     maps/
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/maps
+)
+install(
+    DIRECTORY
+    urdf/
+    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/urdf
+)
+install(
+    DIRECTORY
+    cfg/
+    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/cfg
 )
 
 #############
