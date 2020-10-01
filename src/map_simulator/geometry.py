@@ -300,6 +300,21 @@ def rotate2d(theta):
     return np.array([[c, -s], [s, c]]).reshape((2, 2))
 
 
+def quaternion_axis_angle(q):
+    """
+    Convert a rotation expressed as a quaternion into a 3D vector
+    representing the axis of rotation and the rotation angle in radians.
+
+    :param q: (list|tuple) A quaternion (x, y, z, w)
+
+    :return: (numpy.array, float) A tuple containting a 3D numpy vector and the angle as float
+    """
+
+    w, v = q[3], q[0:2]
+    theta = np.arccos(w) * 2
+    return v, theta
+
+
 if __name__ == "__main__":
     """
     Testing and Sample code

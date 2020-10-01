@@ -3,4 +3,5 @@
 from map_simulator.ground_truth_mapping import GroundTruthMapping
 
 if __name__ == "__main__":
+
     map_handler = GroundTruthMapping()

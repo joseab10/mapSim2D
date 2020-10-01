@@ -17,37 +17,8 @@ import os
 import os.path
 import datetime
 
-
-def frame_eq(tf1, tf2):
-    """
-    Function for determining whether two TF chains are equal by ignoring slashes
-
-    :param tf1: (string) First TF frame chain
-    :param tf2: (string) Second TF frame chain
-
-    :return: (bool) True if tf1 and tf2 represent the same path ignoring slashes
-    """
-
-    tf1_list = filter(None, tf1.split('/'))
-    tf2_list = filter(None, tf2.split('/'))
-
-    eq = tf1_list == tf2_list
-    return eq
-
-
-def quaternion_axis_angle(q):
-    """
-    Convert a rotation expressed as a quaternion into a 3D vector
-    representing the axis of rotation and the rotation angle in radians.
-
-    :param q: (list|tuple) A quaternion (x, y, z, w)
-
-    :return: (numpy.array, float) A tuple containting a 3D numpy vector and the angle as float
-    """
-
-    w, v = q[3], q[0:2]
-    theta = np.arccos(w) * 2
-    return v, theta
+from map_simulator.map_utils import tf_frame_eq
+from map_simulator.geometry import quaternion_axis_angle
 
 
 class PoseErrorCalculator:
@@ -99,11 +70,11 @@ class PoseErrorCalculator:
         log_dir = rospy.get_param("log_dir", default_path)
         log_dir = os.path.expandvars(os.path.expanduser(log_dir))
         # CSV Log File parameters
-        log_prefix = rospy.get_param("~log_prefix", "pose_err")
-        timestamp = datetime.datetime.now()
-        timestamp = datetime.datetime.strftime(timestamp, "%y%m%d_%H%M%S")
-        log_file = log_prefix + timestamp + '.csv'
-        self._log_file = os.path.join(log_dir, log_file)
+        err_prefix = rospy.get_param("~err_prefix", "pose_err")
+        timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+        default_err_file = err_prefix + '_' + timestamp + '.csv'
+        default_err_file = os.path.join(log_dir, default_err_file)
+        self._err_file = rospy.get_param("~err_file", default_err_file)
         # CSV row and column delimiters
         self._newline = rospy.get_param("~newline", "\n")
         self._delim = rospy.get_param("~delim", ",")
@@ -157,7 +128,7 @@ class PoseErrorCalculator:
             pframe = transform.header.frame_id
             cframe = transform.child_frame_id
 
-            is_gt_pose = frame_eq(pframe, self._map_frame) and frame_eq(cframe, self._gt_odom_frame)
+            is_gt_pose = tf_frame_eq(pframe, self._map_frame) and tf_frame_eq(cframe, self._gt_odom_frame)
 
             if is_gt_pose:
                 seq_chgd = self._last_seq != seq
@@ -294,7 +265,7 @@ class PoseErrorCalculator:
 
         rospy.loginfo("Adding pose with seq. {}".format(seq))
 
-        with open(self._log_file, 'a') as f:
+        with open(self._err_file, 'a') as f:
             f.write(row_str)
 
     def _init_log(self):
@@ -307,7 +278,7 @@ class PoseErrorCalculator:
         if not self._log_error:
             return
 
-        rospy.loginfo("Saving error log to {}".format(self._log_file))
+        rospy.loginfo("Saving error log to {}".format(self._err_file))
 
         col_head1 = [
             "SEQ", "Stamp",
@@ -341,5 +312,5 @@ class PoseErrorCalculator:
         csv_header = self._newline.join([self._delim.join(col_header) for col_header in col_headers])
         csv_header += self._newline
 
-        with open(self._log_file, 'w') as f:
+        with open(self._err_file, 'w') as f:
             f.write(csv_header)
