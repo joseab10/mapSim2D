@@ -1,7 +1,11 @@
 {
+  "map_frame" : "map",
   "odom_frame": "odom",
   "base_frame": "base_link",
   "laser_frame": "laser_link",
+
+  "gt_prefix": "GT",
+  "odo_prefix": "odo",
 
   "scan_topic": "base_scan",
 
@@ -29,7 +33,5 @@
   "initial_timestamp" : null,
 
   "render_move_pause": 0.15,
-  "render_sense_pause": 0.05,
-
-  "gt_prefix": "/GT/"
+  "render_sense_pause": 0.05
 }

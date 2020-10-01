@@ -1,7 +1,7 @@
 # ROS Libraries
 import rospy
 import tf
-import tf.transformations
+from tf.transformations import quaternion_from_euler
 import rosbag
 
 # ROS Messages
@@ -23,6 +23,7 @@ from collections import deque
 
 # Project Libraries
 from map_simulator.geometry import Line, Polygon, rotate2d
+from map_simulator.map_utils import tf_frame_normalize, tf_frame_join
 
 
 class MapSimulator2D:
@@ -103,9 +104,13 @@ class MapSimulator2D:
         self._params = {}
 
         defaults = {
-            "odom_frame":  {"def": 'odom',      "desc": 'Odometry TF Frame'},
+            "map_frame":   {"def": "map",       "desc": "Map TF Frame"},
+            "odom_frame":  {"def": "odom",      "desc": "Odometry TF Frame"},
             "base_frame":  {"def": "base_link", "desc": "Base TF Frame"},
-            "laser_frame": {"def": "base_link", "desc": "Laser TF Frame"},
+            "laser_frame": {"def": "laser_link", "desc": "Laser TF Frame"},
+
+            "gt_prefix":  {"def": "GT",  "desc": "Ground Truth TF prefix for the pose and measurement topics"},
+            "odo_prefix": {"def": "odo", "desc": "Odometry TF prefix for the pose and measurement topics"},
 
             "base_to_laser_tf": {"def": [[0, 0], 0], "desc": "Base to Laser Transform"},
 
@@ -140,10 +145,7 @@ class MapSimulator2D:
             "render_move_pause": {"def": 0.5,
                                   "desc": "Time (in s) that the simulation pauses after each move action"},
             "render_sense_pause": {"def": 0.35,
-                                   "desc": "Time (in s) that the simulation pauses after each sensing action"},
-
-            "gt_prefix": {"def": "/GT/",
-                          "desc": "Prefix for the ground truth pose and measurement topics"}
+                                   "desc": "Time (in s) that the simulation pauses after each sensing action"}
         }
 
         # Parse Parameters
@@ -327,6 +329,9 @@ class MapSimulator2D:
         bag = None
         out_path = ""
 
+        move_pause = float(self._params['render_move_pause'])
+        meas_pause = float(self._params['render_sense_pause'])
+
         if output_file is not None:
             try:
                 out_path = os.path.expanduser(output_file)
@@ -341,8 +346,7 @@ class MapSimulator2D:
         axes = None
 
         # Publish Initial Pose
-        self._add_tf_msg(bag, publish_map_odom=True)  # Publish map-odom tf 0-transform while SLAM warms up
-        self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True, increment_seq=True)
+        self._add_tf_messages(bag, first_msg=True)
 
         if display:
             plt.ion()
@@ -350,20 +354,20 @@ class MapSimulator2D:
             axes = figure1.add_subplot(111)
             figure1.show()
 
-            self._render(axes, pause=self._params['render_move_pause'])
+            self._render(axes, pause=move_pause)
 
         for pose in self._pose_list:
 
             self._move(pose)
 
             # Publish pose after move
-            self._add_tf_msg(bag)
-            self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True)
+            self._add_tf_messages(bag)
 
             if display:
-                self._render(axes, pause=self._params['render_move_pause'])
+                self._render(axes, pause=move_pause)
 
-            for i in range(int(self._params['meas_per_move'])):
+            meas_num = int(self._params['meas_per_move'])
+            for i in range(meas_num):
                 measurements, endpoints, hits = self._ray_trace()
 
                 if self._params['deterministic']:
@@ -374,11 +378,10 @@ class MapSimulator2D:
                                                            size=measurements.shape[0])
                     noisy_meas = measurements + meas_noise
 
-                self._add_scan_msg(bag, noisy_meas)
-                self._add_scan_msg(bag, measurements, ground_truth=True)
+                self._add_scan_messages(bag, noisy_meas, det_measurements=measurements)
 
                 # Publish pose after each measurement, otherwise gmapping doesn't process the scans
-                self._add_tf_msg(bag)
+                self._add_tf_messages(bag, add_gt=False, add_odom=False)
 
                 if display:
                     if self._params['deterministic']:
@@ -391,11 +394,11 @@ class MapSimulator2D:
                         endpoint_noise = endpoint_noise.transpose()
                         noisy_endpoints = endpoints + endpoint_noise
 
-                    self._render(axes, noisy_endpoints, hits, pause=self._params['render_sense_pause'])
+                    self._render(axes, noisy_endpoints, hits, pause=meas_pause)
                     self._render(axes, pause=self._params['render_move_pause'] - self._params['render_sense_pause'])
 
-            # Publish the ground truth after all scans just for good measure and as a way of incrementing the seq number
-            self._add_tf_msg(bag, ground_truth=True, publish_map_odom=True, increment_seq=True)
+            # Publish the poses after all scans just for good measure and as a way of incrementing the seq number
+            self._add_tf_messages(bag, increment_seq=True)
 
         rospy.loginfo("Finished simulation")
         if bag is not None:
@@ -717,16 +720,49 @@ class MapSimulator2D:
 
         return bearing_ranges, endpoints, hits
 
-    def _add_tf_msg(self, bag, ground_truth=False, update_laser_tf=True, publish_map_odom=False, increment_seq=False):
+    @staticmethod
+    def __add_transform(msg, ts, seq, p_frame, c_frame, position, rotation):
+        """
+        Function for appending a transform to an existing TFMessage.
+
+        :param msg: (tf2_msgs.TFMessage) A TF message to append a transform to.
+        :param ts: (rospy.Time) A time stamp for the Transform's header.
+        :param seq: (int) The number/sequence of the TF message.
+        :param p_frame: (string) Parent frame of the transform.
+        :param c_frame: (string) Child frame of the transform.
+        :param position: (geometry_msg.Point) A point representing the translation between frames.
+        :param rotation: (list) A quaternion representing the rotation between frames.
+
+        :return: None
+        """
+
+        tran = TransformStamped()
+
+        tran.header.stamp = ts
+        tran.header.seq = seq
+        tran.header.frame_id = p_frame
+        tran.child_frame_id = c_frame
+
+        tran.transform.translation = position
+        tran.transform.rotation.x = rotation[0]
+        tran.transform.rotation.y = rotation[1]
+        tran.transform.rotation.z = rotation[2]
+        tran.transform.rotation.w = rotation[3]
+
+        msg.transforms.append(tran)
+
+    def __add_tf_msg(self, bag, real_pose=False, tf_prefix="", update_laser_tf=True,
+                    publish_map_odom=False, increment_seq=False):
         """
         Publishes a tf transform message to the ROSBag file with the real/noisy pose of the robot
         and (optionally) the laser sensor pose.
 
-        :param bag: Open ROSBag file handler where the message will be stored.
-        :param ground_truth: (bool)[Default: False] Publish real pose if True, noisy pose if False.
-        :param update_laser_tf: (bool)[Default: True] Also publish real laser pose if True.
+        :param bag: (rosbag.Bag) Open ROSBag file handler where the message will be stored.
+        :param real_pose: (bool)[Default: False] Publish real pose if True, noisy pose if False.
+        :param tf_prefix: (string)[Default: ""] Prefix to be prepended to each TF Frame
+        :param update_laser_tf: (bool)[Default: True] Publish base_link->laser_link tf if True.
         :param publish_map_odom: (bool)[Default: False] Publish the map->odom tf transform if True.
-        :param increment_seq: (bool)[Default: False] Increment the sequence number in the tf message's header if True.
+        :param increment_seq: (bool)[Default: False] Increment the sequence number after adding the message if True.
 
         :return: None
         """
@@ -736,91 +772,87 @@ class MapSimulator2D:
 
         tf2_msg = TFMessage()
 
-        if ground_truth:
-            posx = float(self._real_position[0])
-            posy = float(self._real_position[1])
-            theta = float(self._real_orientation)
-            frame_prefix = self._params["gt_prefix"]
+        ts = self._current_time
+        seq = self._tf_msg_seq
 
-        else:
-            posx = float(self._noisy_position[0])
-            posy = float(self._noisy_position[1])
-            theta = float(self._noisy_orientation)
-            frame_prefix = ""
+        odom_frame = tf_frame_normalize(tf_frame_join(tf_prefix, str(self._params['odom_frame'])))
+        base_frame = tf_frame_normalize(tf_frame_join(tf_prefix, str(self._params['base_frame'])))
 
         if publish_map_odom:
+            map_frame = str(self._params['map_frame'])
+            zero_pos = Point(0.0, 0.0, 0.0)
+            zero_rot = quaternion_from_euler(0.0, 0.0, 0.0)
 
-            tf_map_odom_msg = TransformStamped()
+            self.__add_transform(tf2_msg, ts, seq, map_frame, odom_frame, zero_pos, zero_rot)
 
-            tf_map_odom_msg.header.stamp = self._current_time
-            tf_map_odom_msg.header.seq = self._tf_msg_seq
-            tf_map_odom_msg.header.frame_id = "/map"
-            tf_map_odom_msg.child_frame_id = frame_prefix + self._params['odom_frame']
+        if real_pose:
+            pos_x = float(self._real_position[0])
+            pos_y = float(self._real_position[1])
+            theta = float(self._real_orientation)
 
-            position = Point(0, 0, 0)
-            quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, 0)
-            tf_map_odom_msg.transform.translation = position
-            tf_map_odom_msg.transform.rotation.x = quaternion[0]
-            tf_map_odom_msg.transform.rotation.y = quaternion[1]
-            tf_map_odom_msg.transform.rotation.z = quaternion[2]
-            tf_map_odom_msg.transform.rotation.w = quaternion[3]
+        else:
+            pos_x = float(self._noisy_position[0])
+            pos_y = float(self._noisy_position[1])
+            theta = float(self._noisy_orientation)
 
-            tf2_msg.transforms.append(tf_map_odom_msg)
+        odom_pos = Point(pos_x, pos_y, 0.0)
+        odom_rot = quaternion_from_euler(0.0, 0.0, theta)
 
-        tf_odom_robot_msg = TransformStamped()
-
-        tf_odom_robot_msg.header.stamp = self._current_time
-        tf_odom_robot_msg.header.seq = self._tf_msg_seq
-        tf_odom_robot_msg.header.frame_id = frame_prefix + self._params['odom_frame']
-        tf_odom_robot_msg.child_frame_id = frame_prefix + self._params['base_frame']
-
-        position = Point(posx, posy, 0.0)
-        quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, theta)
-
-        tf_odom_robot_msg.transform.translation = position
-        tf_odom_robot_msg.transform.rotation.x = quaternion[0]
-        tf_odom_robot_msg.transform.rotation.y = quaternion[1]
-        tf_odom_robot_msg.transform.rotation.z = quaternion[2]
-        tf_odom_robot_msg.transform.rotation.w = quaternion[3]
-
-        tf2_msg.transforms.append(tf_odom_robot_msg)
+        self.__add_transform(tf2_msg, ts, seq, odom_frame, base_frame, odom_pos, odom_rot)
 
         if update_laser_tf:
-            tf_laser_robot_msg = TransformStamped()
+            laser_frame = tf_frame_normalize(tf_frame_join(tf_prefix, str(self._params['laser_frame'])))
 
-            tf_laser_robot_msg.header.stamp = self._current_time
-            tf_laser_robot_msg.header.seq = self._tf_msg_seq
-            tf_laser_robot_msg.header.frame_id = frame_prefix + self._params['base_frame']
-            tf_laser_robot_msg.child_frame_id = frame_prefix + self._params['laser_frame']
+            lp_x = float(self._params['base_to_laser_tf'][0][0])
+            lp_y = float(self._params['base_to_laser_tf'][0][1])
+            lp_th = float(self._params['base_to_laser_tf'][1][0])
 
-            position = Point(float(self._params['base_to_laser_tf'][0][0]),
-                             float(self._params['base_to_laser_tf'][0][1]), 0.0)
-            quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0,
-                                                                  float(self._params['base_to_laser_tf'][1][0]))
+            laser_pos = Point(lp_x, lp_y, 0.0)
+            laser_rot = quaternion_from_euler(0.0, 0.0, lp_th)
 
-            tf_laser_robot_msg.transform.translation = position
-            tf_laser_robot_msg.transform.rotation.x = quaternion[0]
-            tf_laser_robot_msg.transform.rotation.y = quaternion[1]
-            tf_laser_robot_msg.transform.rotation.z = quaternion[2]
-            tf_laser_robot_msg.transform.rotation.w = quaternion[3]
-
-            tf2_msg.transforms.append(tf_laser_robot_msg)
+            self.__add_transform(tf2_msg, ts, seq, base_frame, laser_frame, laser_pos, laser_rot)
 
         bag.write("/tf", tf2_msg, self._current_time)
 
-        # Only increment sequence for noisy pose, that way both the real and noisy pose messages will have the same
-        # sequence for a given movement.
         if increment_seq:
             self._tf_msg_seq += 1
 
-    def _add_scan_msg(self, bag, measurements, ground_truth=False):
+    def _add_tf_messages(self, bag, add_gt=True, add_odom=True, update_laser_tf=True,
+                         increment_seq=False, first_msg=False):
+        """
+        Function for adding all TF messages (Noisy pose, GT pose, Odom pose) at once.
+
+        :param bag: (rosbag.Bag) Open ROSBag file handler where the messages will be stored.
+        :param add_gt: (bool)[Default: True] Publish the ground truth transforms.
+        :param add_odom (bool)[Default: True] Publish the plain odometry transforms.
+        :param update_laser_tf: (bool)[Default: True] Publish base_link->laser_link tf if True.
+        :param increment_seq: (bool)[Default: False] Increment the sequence number after the last tf message if True.
+        """
+
+        # Noisy Pose
+        do_increment = increment_seq and not (add_gt or add_odom)
+        self.__add_tf_msg(bag, real_pose=False, tf_prefix="", update_laser_tf=update_laser_tf,
+                          publish_map_odom=first_msg, increment_seq=do_increment)
+        # Ground Truth Pose
+        if add_gt:
+            do_increment = increment_seq and not add_odom
+            gt_prefix = str(self._params['gt_prefix'])
+            self.__add_tf_msg(bag, real_pose=True, tf_prefix=gt_prefix, update_laser_tf=update_laser_tf,
+                              publish_map_odom=True, increment_seq=do_increment)
+        # Odometry Pose
+        if add_odom:
+            odo_prefix = str(self._params['odo_prefix'])
+            self.__add_tf_msg(bag, real_pose=False, tf_prefix=odo_prefix, update_laser_tf=update_laser_tf,
+                              publish_map_odom=True, increment_seq=increment_seq)
+
+    def __add_scan_msg(self, bag, topic, frame, measurements, increment_seq=False):
         """
         Publish a LaserScan message to a ROSBag file with the given measurement ranges.
 
-        :param bag: Open ROSBag file handler where the message will be stored.
+        :param bag: (rosbag.Bag) Open ROSBag file handler where the message will be stored.
         :param measurements: (ndarray) 2D Array of measurements to be published.
                                        Measured ranges must be in measurements[:, 1]
-        :param ground_truth: (bool) Determines to which topic to publish. True for real measurements, False for noisy.
+        :param increment_seq: (bool)[Default: False] Increment the sequence number after saving the message if True.
 
         :return: None
         """
@@ -828,14 +860,9 @@ class MapSimulator2D:
         if bag is None:
             return
 
-        if ground_truth:
-            topic_prefix = self._params["gt_prefix"]
-        else:
-            topic_prefix = ""
-
         meas_msg = LaserScan()
 
-        meas_msg.header.frame_id = topic_prefix + self._params['laser_frame']
+        meas_msg.header.frame_id = frame  # topic_prefix + self._params['laser_frame']
         meas_msg.header.stamp = self._current_time
         meas_msg.header.seq = self._laser_msg_seq
 
@@ -852,11 +879,51 @@ class MapSimulator2D:
         meas_msg.ranges = measurements[:, 1]
         meas_msg.intensities = []
 
-        bag.write(topic_prefix + self._params['scan_topic'], meas_msg, meas_msg.header.stamp)
+        bag.write(topic, meas_msg, self._current_time)
 
-        if not ground_truth:
+        # if not ground_truth:
+        if increment_seq:
             self._laser_msg_seq += 1
             self._increment_time(self._params['scan_time_interval'])
+
+    def _add_scan_messages(self, bag, noisy_measurements, det_measurements=None, add_gt=True, add_odom=True):
+        """
+        Function for adding all scan messages (Noisy pose, GT pose, Odom pose) at once.
+
+        :param bag: (rosbag.Bag) Open ROSBag file handler where the messages will be stored.
+        :param noisy_measurements: (ndarray) 2D Array of noisy measurements to be published.
+                                             Measured ranges must be in measurements[:, 1]
+       :param det_measurements: (ndarray)[Default: None] 2D Array of deterministic measurements to be published.
+                                                         Measured ranges must be in measurements[:, 1].
+                                                         If None, then ground truth won't be published,
+                                                         even if add_gt is True.
+       :param add_gt: (bool)[Default: True] Add scan message from ground truth pose frame if True
+                                            and det_measurements is not None.
+       :param add_odom: (bool)[Default: True] Add scan messages from odom pose frame if True.
+
+       :return: None
+        """
+
+        topic = str(self._params['scan_topic'])
+        frame = str(self._params['laser_frame'])
+        do_inc_seq = not (add_gt or add_odom)
+
+        self.__add_scan_msg(bag, topic, frame, noisy_measurements, increment_seq=do_inc_seq)
+
+        if add_gt and det_measurements is not None:
+            gt_prefix = str(self._params['gt_prefix'])
+            gt_topic = '/' + tf_frame_normalize(tf_frame_join(gt_prefix, topic))
+            gt_frame = tf_frame_normalize(tf_frame_join(gt_prefix, frame))
+            do_inc_seq = not add_odom
+
+            self.__add_scan_msg(bag, gt_topic, gt_frame, det_measurements, increment_seq=do_inc_seq)
+
+        if add_odom:
+            odo_prefix = str(self._params['odo_prefix'])
+            odo_topic = '/' + tf_frame_normalize(tf_frame_join(odo_prefix, topic))
+            odo_frame = tf_frame_normalize(tf_frame_join(odo_prefix, frame))
+
+            self.__add_scan_msg(bag, odo_topic, odo_frame, noisy_measurements, increment_seq=True)
 
     def _increment_time(self, ms):
         """
