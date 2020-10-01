@@ -26,10 +26,9 @@ import datetime
 from collections import deque
 
 # Project Libraries
-# from map_simulator.map_models import MapModel
-from map_simulator.map_colorizer import MapColorizer
-from map_simulator.disc_states import DiscreteStates as DiSt
-from map_simulator.map_utils import map_msg_to_numpy, map_msg_extent
+from map_simulator import MapColorizer
+from map_simulator.enums import DiscreteStates as DiSt
+from map_simulator.utils import map_msg_to_numpy, map_msg_extent
 
 
 class FMPPlotter:

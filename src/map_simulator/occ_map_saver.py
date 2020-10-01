@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import os
 
-from map_simulator.map_utils import map_msg_to_numpy
+from map_simulator.utils import map_msg_to_numpy
 
 
 class OccMapSaver:

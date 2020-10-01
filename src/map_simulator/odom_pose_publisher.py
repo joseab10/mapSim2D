@@ -4,7 +4,7 @@ from tf.transformations import quaternion_from_euler
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import Point, TransformStamped
 
-from map_simulator.map_utils import tf_frame_normalize, tf_frame_join
+from map_simulator.utils import tf_frame_normalize, tf_frame_join
 
 _zero_trans = Point(0, 0, 0)
 _zero_rot = quaternion_from_euler(0.0, 0.0, 0)

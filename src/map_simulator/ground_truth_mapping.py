@@ -14,6 +14,9 @@ from skimage.draw import line
 
 from collections import defaultdict, deque
 
+# Project Libraries
+from map_simulator.utils import map2world, world2map
+
 
 class GroundTruthMapping:
     """
@@ -178,30 +181,19 @@ class GroundTruthMapping:
         self._map_height = msg.info.height
         self._map_width = msg.info.width
         self._map_resolution = msg.info.resolution
-        self._map_origin = msg.info.origin
+        self._map_origin = np.ndarray([msg.info.origin.position.x, msg.info.origin.position.y])
 
         # For each scan in the measurement list, convert the endpoints to the center points of the grid cells,
         # Get the cells crossed by the beams and mark those indexes as occ or free.
         while self._scan_buffer:
             scan = self._scan_buffer.popleft()
             lp = scan[0]
-            ilp = self._world2map(lp)
+            ilp = world2map(lp, self._map_origin, self._map_resolution)
 
             endpoints = scan[1]
             max_range = scan[2]
-            i_endpoints = self._world2map(endpoints)
+            i_endpoints = world2map(endpoints, self._map_origin, self._map_resolution)
             for i, i_ep in enumerate(i_endpoints):
-
-
-                # if ix0 > ix1:
-                #     tmp = ix0
-                #     ix0 = ix1
-                #     ix1 = tmp
-                #     tmp = iy0
-                #     iy0 = iy1
-                #     iy1 = tmp
-                #
-                #     hit_idx = 0
 
                 line_cells = line(ilp[0], ilp[1], i_ep[0], i_ep[1])
                 line_indexes = np.array(zip(line_cells[0], line_cells[1]))
@@ -209,19 +201,19 @@ class GroundTruthMapping:
                 if not max_range[i]:
                     occ_indexes = line_indexes[-1]
                     # Increment hit cell
-                    hit_c = tuple(self._map2world(occ_indexes, rounded=True))
+                    hit_c = tuple(map2world(occ_indexes, self._map_origin, self._map_resolution, rounded=True))
                     self._map_hits[hit_c] += 1
 
                 # Increment visited cells
                 for visit in line_indexes:
-                    visit_c = tuple(self._map2world(visit, rounded=True))
+                    visit_c = tuple(map2world(visit, self._map_origin, self._map_resolution, rounded=True))
                     self._map_visits[visit_c] += 1
 
         # Compute Occupancy value as hits/visits from the default dicts
         map_shape = (self._map_width, self._map_height)
         tmp_map = -1 * np.ones(map_shape)
         for pos, visits in self._map_visits.iteritems():
-            ix, iy = self._world2map(pos)
+            ix, iy = world2map(pos, self._map_origin, self._map_resolution)
             hits = self._map_hits[pos]
             tmp_map[ix, iy] = hits / visits
 

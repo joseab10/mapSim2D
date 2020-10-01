@@ -23,7 +23,7 @@ from collections import deque
 # Project Libraries
 from map_simulator.geometry.primitives import Line, Polygon
 from map_simulator.geometry.transform import rotate2d
-from map_simulator.map_utils import tf_frame_normalize, tf_frame_join
+from map_simulator.utils import tf_frame_normalize, tf_frame_join
 
 
 class MapSimulator2D:

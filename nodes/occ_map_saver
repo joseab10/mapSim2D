@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-from map_simulator.occ_map_saver import OccMapSaver
+from map_simulator import OccMapSaver
 
 if __name__ == "__main__":
 

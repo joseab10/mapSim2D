@@ -17,8 +17,8 @@ import os
 import os.path
 import datetime
 
-from map_simulator.map_utils import tf_frame_eq
 from map_simulator.geometry.transform import quaternion_axis_angle
+from map_simulator.utils import tf_frame_eq
 
 
 class PoseErrorCalculator:

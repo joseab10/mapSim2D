@@ -103,3 +103,64 @@ def tf_frame_eq(tf1, tf2):
 
     eq = tf1_list == tf2_list
     return eq
+
+
+def world2map(point, map_origin, delta):
+    """
+    Convert from world units to discrete cell coordinates.
+
+    :param point: (np.ndarray) X and Y position in world coordinates to be converted.
+    :param map_origin: (np.ndarray) X and Y position in world coordinates of the map's (0, 0) cell.
+    :param delta: (float) Width/height of a cell in world units (a.k.a. resolution).
+
+    :return: (np.ndarray) Integer-valued coordinates in map units. I.e.: cell indexes corresponding to x and y.
+    """
+
+    int_point = point - map_origin
+    int_point /= delta
+
+    return int_point.astype(np.int)
+
+
+def map2world(int_point, map_origin, delta, rounded=False):
+    """
+    Convert from discrete map cell coordinates to world units.
+
+    :param int_point: (np.ndarray) Row and Column indices in map coordinates to be converted.
+    :param map_origin: (np.ndarray) X and Y position in world coordinates of the map's (0, 0) cell.
+    :param delta: (float) Width/height of a cell in world units (a.k.a. resolution).
+    :param rounded: (bool)[Default: False] Round the resulting point up to an order of magnitude smaller
+                                           than the resolution if True.
+                                           Useful for repeatability when computing the center coordinates of cells.
+
+    :return: (np.ndarray) X and Y position in world coordinates.
+    """
+
+    point = delta * np.ones_like(int_point)
+    point = np.multiply(point, int_point)
+    point += map_origin
+
+    if rounded:
+        decimals = np.log10(delta)
+        if decimals < 0:
+            decimals = int(np.ceil(-decimals) + 1)
+            point = np.round(point, decimals)
+
+    return point
+
+
+def cell_centerpoint(point, map_origin, delta):
+    """
+    Gives the center point in world coordinates of the cell corresponding to a given point in world coordinates.
+
+    :param point: (np.ndarray) X and Y position in world coordinates to be converted.
+    :param map_origin: (np.ndarray) X and Y position in world coordinates of the map's (0, 0) cell.
+    :param delta: (float) Width/height of a cell in world units (a.k.a. resolution).
+
+    :return: (np.ndarray) X and Y position of the cell's center in world coordinates.
+    """
+
+    int_point = world2map(point, map_origin, delta)
+    cnt_point = map2world(int_point, map_origin, delta, rounded=True)
+
+    return cnt_point
