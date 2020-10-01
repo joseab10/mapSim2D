@@ -12,6 +12,8 @@ from sensor_msgs.msg import LaserScan
 import numpy as np
 from skimage.draw import line
 
+from collections import defaultdict, deque
+
 
 class GroundTruthMapping:
     """
@@ -28,32 +30,31 @@ class GroundTruthMapping:
 
         self._tf_listener = tf.TransformListener()
 
-        self._gt_prefix = rospy.get_param("~gt_prefix", "/GT/")
-
         self._map_frame = rospy.get_param("~map_frame", "map")
-        self._laser_frame = rospy.get_param("~sensor_frame", self._gt_prefix + "laser_link")
+        self._pose_origin_frame = rospy.get_param("~pose_origin_frame", "map")
+        self._laser_frame = rospy.get_param("~sensor_frame", "/GT/laser_link")
 
-        self._max_scan_buffer_len = rospy.get_param("~max_scan_buffer_len", 1000)
+        max_scan_buffer_len = rospy.get_param("~max_scan_buffer_len", 1000)
         self._occ_threshold = rospy.get_param("~occ_threshold", 0.25)
 
         self._sub_map = rospy.Subscriber("map", OccupancyGrid, self._map_callback)
-        self._sub_scan = rospy.Subscriber(self._gt_prefix + "base_scan", LaserScan, self._sensor_callback)
-        self._pub_map = rospy.Publisher(self._gt_prefix + "map", OccupancyGrid, queue_size=1)
+        self._sub_scan = rospy.Subscriber("/GT/base_scan", LaserScan, self._sensor_callback)
+        self._pub_map = rospy.Publisher("/GT/map", OccupancyGrid, queue_size=1)
 
-        self._map_hits = None
-        self._map_visits = None
+        self._map_hits = defaultdict(int)
+        self._map_visits = defaultdict(int)
         self._map_height = 0
         self._map_width = 0
         self._map_resolution = 0
         self._map_origin = None
 
-        self._endpoints = []
+        self._scan_buffer = deque(maxlen=max_scan_buffer_len)
         self._min_range = 0
         self._max_range = 0
 
         rospy.spin()
 
-    def _world2map(self, x, y, mx0=None, my0=None, delta=None):
+    def _world2map(self, point, mx0=None, my0=None, delta=None):
         """
         Convert from world units to discrete cell coordinates.
 
@@ -72,11 +73,48 @@ class GroundTruthMapping:
             my0 = self._map_origin.position.y
         if delta is None:
             delta = self._map_resolution
+        if not isinstance(point, np.ndarray):
+            point = np.array(point)
 
-        ix = int((x - mx0) // delta)
-        iy = int((y - my0) // delta)
+        origin = np.array([mx0, my0])
+        int_point = point - origin
+        int_point /= delta
 
-        return ix, iy
+        return int_point.astype(np.int)
+
+    def _map2world(self, int_point, mx0=None, my0=None, delta=None, rounded=False):
+        """
+        TODO
+        """
+
+        if mx0 is None:
+            mx0 = self._map_origin.position.x
+        if my0 is None:
+            my0 = self._map_origin.position.y
+        if delta is None:
+            delta = self._map_resolution
+        if not isinstance(int_point, np.ndarray):
+            int_point = np.array(int_point)
+
+        origin = np.array([mx0, my0])
+
+        point = delta * np.ones_like(int_point)
+        point = np.multiply(point, int_point)
+        point += origin
+
+        if rounded:
+            decimals = np.log10(delta)
+            if decimals < 0:
+                decimals = int(np.ceil(-decimals) + 1)
+                point = np.round(point, decimals)
+
+        return point
+
+    def _cell_centerpoint(self, point, mx0=None, my0=None, delta=None):
+        int_point = self._world2map(point, mx0, my0, delta)
+        cnt_point = self._map2world(int_point, mx0, my0, delta, rounded=True)
+
+        return cnt_point
 
     def _sensor_callback(self, msg):
         """
@@ -89,28 +127,35 @@ class GroundTruthMapping:
         :return: None
         """
 
-        pose = self._tf_listener.lookupTransform(self._map_frame, self._laser_frame, rospy.Time(0))
+        laser_pose = self._tf_listener.lookupTransform(self._pose_origin_frame, self._laser_frame, rospy.Time(0))
+        lp = np.array([laser_pose[0][0], laser_pose[0][1]])  # Laser Pose
+        _, _, lp_th = tf.transformations.euler_from_quaternion(laser_pose[1])  # Laser Orientation
 
+        rospy.loginfo("Received scan at pose: ({}, {}), theta: {}".format(lp[0], lp[1], lp_th))
         self._min_range = msg.range_min
         self._max_range = msg.range_max
 
-        _, _, yaw = tf.transformations.euler_from_quaternion(pose[1])
-        pose_x = pose[0][0]
-        pose_y = pose[0][1]
-
         ranges = np.array(msg.ranges)
+        max_range = ranges > self._max_range
+        ranges = np.clip(ranges, self._min_range, self._max_range)
 
-        bearings = yaw + np.arange(msg.angle_min, msg.angle_max, msg.angle_increment)
-        bearings = np.append(bearings, msg.angle_max)
+        #bearings = np.arange(msg.angle_min, msg.angle_max, msg.angle_increment)
+        #bearings = np.append(bearings, msg.angle_max)
+        bearings = np.linspace(msg.angle_min, msg.angle_max, ranges.shape[0])
+        bearings += lp_th
 
-        meas_x = np.multiply(ranges, np.cos(bearings))
-        meas_x += pose_x
-        meas_y = np.multiply(ranges, np.sin(bearings))
-        meas_y += pose_y
+        cos_sin = np.stack([np.cos(bearings), np.sin(bearings)], axis=1)
+        endpoints = np.multiply(ranges.reshape((-1, 1)), cos_sin)
+        endpoints += lp
 
-        endpoints = np.stack([meas_x, meas_y], axis=1)
+        # meas_x = np.multiply(ranges, np.cos(bearings))
+        # meas_x += lp_x
+        # meas_y = np.multiply(ranges, np.sin(bearings))
+        # meas_y += lp_y
+        #
+        # endpoints = np.stack([meas_x, meas_y], axis=1)
 
-        self._endpoints.append(((pose_x, pose_y), endpoints))
+        self._scan_buffer.append((lp, endpoints, max_range))
 
     def _map_callback(self, msg):
         """
@@ -128,72 +173,61 @@ class GroundTruthMapping:
 
         :return: None
         """
-        
-        # Get published map properties
-        height = msg.info.height
-        width = msg.info.width
-        resolution = msg.info.resolution
-        origin = msg.info.origin
 
-        # If this is the first time, create a new blank map
-        if self._map_hits is None:
-            self._map_height = height
-            self._map_width = width
-            self._map_resolution = resolution
-            self._map_origin = origin
+        # Set map attributes
+        self._map_height = msg.info.height
+        self._map_width = msg.info.width
+        self._map_resolution = msg.info.resolution
+        self._map_origin = msg.info.origin
 
-            self._map_hits = np.zeros((width, height), dtype=np.int)
-            self._map_visits = np.zeros((width, height), dtype=np.int)
+        # For each scan in the measurement list, convert the endpoints to the center points of the grid cells,
+        # Get the cells crossed by the beams and mark those indexes as occ or free.
+        while self._scan_buffer:
+            scan = self._scan_buffer.popleft()
+            lp = scan[0]
+            ilp = self._world2map(lp)
 
-        # If the size changed, increase the size of the map
-        if self._map_height < height or self._map_width < width:
-            # Create new map with new dimensions
-            new_map_hits = np.zeros((width, height), dtype=np.int)
-            new_map_visits = np.zeros((width, height), dtype=np.int)
+            endpoints = scan[1]
+            max_range = scan[2]
+            i_endpoints = self._world2map(endpoints)
+            for i, i_ep in enumerate(i_endpoints):
 
-            # Compute grid position of old map's origin
-            x0, y0 = self._world2map(self._map_origin.position.x, self._map_origin.position.y,
-                                     mx0=origin.position.x, my0=origin.position.y, delta=resolution)
-            # Compute grid position of old map's opposite corner
-            x1 = x0 + self._map_width
-            y1 = y0 + self._map_height
-            # Copy data from the old map to the new one
-            new_map_hits[x0:x1, y0:y1] = self._map_hits
-            new_map_visits[x0:x1, y0:y1] = self._map_visits
 
-            # Set map attributes
-            self._map_height = height
-            self._map_width = width
-            self._map_resolution = resolution
-            self._map_origin = origin
-            # Set maps to new object
-            self._map_hits = new_map_hits
-            self._map_visits = new_map_visits
+                # if ix0 > ix1:
+                #     tmp = ix0
+                #     ix0 = ix1
+                #     ix1 = tmp
+                #     tmp = iy0
+                #     iy0 = iy1
+                #     iy1 = tmp
+                #
+                #     hit_idx = 0
 
-        # For each scan in the measurement list, convert the endpoints to grid coordinates,
-        # Get the cells crossed by the lines and mark those indexes as occ or free.
-        while self._endpoints:
-            scan = self._endpoints.pop()
-            pose = scan[0]
-            ix0, iy0 = self._world2map(pose[0], pose[1])
-
-            measurements = scan[1]
-            for endpoint in measurements:
-                ix1, iy1 = self._world2map(endpoint[0], endpoint[1])
-
-                line_cells = line(ix0, iy0, ix1, iy1)
+                line_cells = line(ilp[0], ilp[1], i_ep[0], i_ep[1])
                 line_indexes = np.array(zip(line_cells[0], line_cells[1]))
-                occ_indexes = line_indexes[-1]
 
-                self._map_hits[occ_indexes[0], occ_indexes[1]] += 1
-                self._map_visits[line_cells[0], line_cells[1]] += 1
+                if not max_range[i]:
+                    occ_indexes = line_indexes[-1]
+                    # Increment hit cell
+                    hit_c = tuple(self._map2world(occ_indexes, rounded=True))
+                    self._map_hits[hit_c] += 1
 
-        # Compute occupancy
-        tmp_map = np.divide(self._map_hits, self._map_visits,
-                            out=-1 * np.ones_like(self._map_hits), where=self._map_visits != 0)
+                # Increment visited cells
+                for visit in line_indexes:
+                    visit_c = tuple(self._map2world(visit, rounded=True))
+                    self._map_visits[visit_c] += 1
+
+        # Compute Occupancy value as hits/visits from the default dicts
+        map_shape = (self._map_width, self._map_height)
+        tmp_map = -1 * np.ones(map_shape)
+        for pos, visits in self._map_visits.iteritems():
+            ix, iy = self._world2map(pos)
+            hits = self._map_hits[pos]
+            tmp_map[ix, iy] = hits / visits
+
         tmp_occ = tmp_map >= self._occ_threshold
         tmp_free = np.logical_and(0 <= tmp_map, tmp_map < self._occ_threshold)
-        occ_map = -1 * np.ones((self._map_width, self._map_height), dtype=np.int8)
+        occ_map = -1 * np.ones(map_shape, dtype=np.int8)
         occ_map[tmp_occ] = 100
         occ_map[tmp_free] = 0
 
