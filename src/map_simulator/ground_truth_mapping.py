@@ -57,68 +57,6 @@ class GroundTruthMapping:
 
         rospy.spin()
 
-    def _world2map(self, point, mx0=None, my0=None, delta=None):
-        """
-        Convert from world units to discrete cell coordinates.
-
-        :param x: (float) X position in world coordinates to be converted.
-        :param y: (float) Y position in world coordinates to be converted.
-        :param mx0: (float) X position in world coordinates of the map's (0, 0) cell. If None, own value is used.
-        :param my0: (float) Y position in world coordinates of the map's (0, 0) cell. If None, own value is used.
-        :param delta: (float) Width/height of a cell in world units (a.k.a. resolution). If None, own value is used.
-
-        :return: (tuple) Tuple if integer valued coordinates in map units. I.e.: cell indexes corresponding to x and y.
-        """
-
-        if mx0 is None:
-            mx0 = self._map_origin.position.x
-        if my0 is None:
-            my0 = self._map_origin.position.y
-        if delta is None:
-            delta = self._map_resolution
-        if not isinstance(point, np.ndarray):
-            point = np.array(point)
-
-        origin = np.array([mx0, my0])
-        int_point = point - origin
-        int_point /= delta
-
-        return int_point.astype(np.int)
-
-    def _map2world(self, int_point, mx0=None, my0=None, delta=None, rounded=False):
-        """
-        TODO
-        """
-
-        if mx0 is None:
-            mx0 = self._map_origin.position.x
-        if my0 is None:
-            my0 = self._map_origin.position.y
-        if delta is None:
-            delta = self._map_resolution
-        if not isinstance(int_point, np.ndarray):
-            int_point = np.array(int_point)
-
-        origin = np.array([mx0, my0])
-
-        point = delta * np.ones_like(int_point)
-        point = np.multiply(point, int_point)
-        point += origin
-
-        if rounded:
-            decimals = np.log10(delta)
-            if decimals < 0:
-                decimals = int(np.ceil(-decimals) + 1)
-                point = np.round(point, decimals)
-
-        return point
-
-    def _cell_centerpoint(self, point, mx0=None, my0=None, delta=None):
-        int_point = self._world2map(point, mx0, my0, delta)
-        cnt_point = self._map2world(int_point, mx0, my0, delta, rounded=True)
-
-        return cnt_point
-
     def _sensor_callback(self, msg):
         """
         Function to be called each time a laser scan message is received.
@@ -142,21 +80,12 @@ class GroundTruthMapping:
         max_range = ranges > self._max_range
         ranges = np.clip(ranges, self._min_range, self._max_range)
 
-        #bearings = np.arange(msg.angle_min, msg.angle_max, msg.angle_increment)
-        #bearings = np.append(bearings, msg.angle_max)
         bearings = np.linspace(msg.angle_min, msg.angle_max, ranges.shape[0])
         bearings += lp_th
 
         cos_sin = np.stack([np.cos(bearings), np.sin(bearings)], axis=1)
         endpoints = np.multiply(ranges.reshape((-1, 1)), cos_sin)
         endpoints += lp
-
-        # meas_x = np.multiply(ranges, np.cos(bearings))
-        # meas_x += lp_x
-        # meas_y = np.multiply(ranges, np.sin(bearings))
-        # meas_y += lp_y
-        #
-        # endpoints = np.stack([meas_x, meas_y], axis=1)
 
         self._scan_buffer.append((lp, endpoints, max_range))
 
