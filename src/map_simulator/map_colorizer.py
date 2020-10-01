@@ -4,7 +4,7 @@ import matplotlib as mpl
 import matplotlib.colors
 import matplotlib.cm
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize, BoundaryNorm
+from matplotlib.colors import Normalize, LogNorm, BoundaryNorm
 
 from map_simulator.disc_states import DiscreteStates as DiSt
 
@@ -156,17 +156,28 @@ class MapColorizer:
         self._clr_ds = DiSt.get_colors(ds_list)    # Color list for discrete states
         self._cmp_ds = mpl.colors.ListedColormap(self._clr_ds, name="cm_ds")  # Colormap for discrete states
 
-        self._tks_ds = DiSt.get_values(ds_list)  # Tick Values for discrete states
+        self._tks_ds = [float(i) for i in range(len(ds_list))]  # Tick Values for discrete states
+        self._tlb_ds = DiSt.get_labels(ds_list)  # Tick Labels for discrete states
+
         # Nasty fix for single discrete value
         if len(ds_list) == 1:
-            self._tks_ds = [self._tks_ds[0] + i - 1 for i in range(3)]
-
-        self._tlb_ds = DiSt.get_labels(ds_list)  # Tick Labels for discrete states
-        if len(ds_list) == 1:
+            tk_0 = self._tks_ds[0]
+            self._tks_ds = [tk_0 - 1 + i for i in range(3)]
             self._tlb_ds = ['', self._tlb_ds[0], '']
+            self._bnd_ds = np.array([tk_0 - 0.5 + i for i in range(4)])
 
-        self._bnd_ds = np.array(self._tks_ds) + 0.5
-        self._bnd_ds = np.append(min(self._tks_ds) - 0.5, self._bnd_ds)  # Boundaries for the colors in the
+        elif len(ds_list) == 2:
+            tk_0 = self._tks_ds[0]
+            tk_1 = self._tks_ds[1]
+            tk_avg = (tk_0 + tk_1)/2
+            self._tks_ds = [tk_0, tk_avg, tk_1]
+            self._tlb_ds = [self._tlb_ds[0], '', self._tlb_ds[1]]
+            self._bnd_ds = [tk_0 - 0.5, tk_avg, tk_1 + 0.5]
+
+        else:
+            self._bnd_ds = np.array(self._tks_ds) + 0.5
+            self._bnd_ds = np.append(min(self._tks_ds) - 0.5, self._bnd_ds)  # Boundaries for the colors in the
+
         self._nrm_ds = BoundaryNorm(self._tks_ds, len(self._tks_ds))
 
         # Scalar Mappable for discrete state color bar
@@ -176,7 +187,7 @@ class MapColorizer:
         )
         self._map_ds._A = []
 
-    def set_cont_bounds(self, img, v_min=0, v_max=1, occupancy_map=True):
+    def set_cont_bounds(self, img, v_min=0, v_max=1, occupancy_map=True, log_scale=False):
         """
         Set the min and max continuous values that a certain cell can take.
         Used for Used for defining the possible values, color map and normalization for the actual plot and also the
@@ -188,6 +199,7 @@ class MapColorizer:
         :param v_max: (float|None)[Default: 1] Maximum value the map can take. If None, it will be taken as img.max()
         :param occupancy_map: (bool)[Default: True] If True, then 'Free' and 'Occ' will be appended to the first and
                                                     last tick labels respectively if they were not defined as None.
+        :param log_scale: (bool)[Default: False] Assign the colors logarithmically
 
         :return: None
         """
@@ -199,6 +211,14 @@ class MapColorizer:
         else:
             self._v_min = img.min()
             self._cb_ci_extend = 'min'
+
+        if log_scale and self._v_min == 0:
+            min_val = img.min()
+
+            if min_val > 0:
+                self._v_min = img.min()
+            else:
+                self._v_min = 10 ** -3
 
         if v_max is not None:
             self._v_max = v_max
@@ -213,11 +233,17 @@ class MapColorizer:
         else:
             self._cmp_ci = mpl.cm.get_cmap('plasma_r')
 
-        tick_step = float(self._v_max - self._v_min) / self._cb_tick_count
-        self._tks_ci = np.arange(self._v_min, self._v_max + tick_step, tick_step)
-        self._tlb_ci = list(np.char.mod('%.2f', self._tks_ci))
+        if log_scale:
+            self._tks_ci = np.logspace(np.log10(self._v_min), np.log10(self._v_max), self._cb_tick_count)
+            self._tlb_ci = list(np.char.mod('%.2E', self._tks_ci))
 
-        self._nrm_ci = Normalize(vmin=self._v_min, vmax=self._v_max)
+            self._nrm_ci = LogNorm(vmin=self._v_min, vmax=self._v_max)
+        else:
+            self._tks_ci = np.linspace(self._v_min, self._v_max, self._cb_tick_count)
+            self._tlb_ci = list(np.char.mod('%.2f', self._tks_ci))
+
+            self._nrm_ci = Normalize(vmin=self._v_min, vmax=self._v_max)
+
         self._map_ci = mpl.cm.ScalarMappable(
             cmap=self._cmp_ci,
             norm=self._nrm_ci
@@ -396,7 +422,14 @@ class MapColorizer:
         rgba_img = np.zeros(shape)
 
         if ds_map is not None:
+            # Remap Discrete States from enum values to equally spaced values for nicer colorbars.
+            # E.g.: for [UNDEFINED, UNIFORM, ZERO] with values [1, 2, 4], remap to [0, 1, 2]
+            # for evenly distributed ticks
+            for i, ds_state_val in enumerate(self._ds_list):
+                ds_map[ds_map == ds_state_val.value] = i
+            # Then normalize to [0, 1] interval
             ds_map = self._nrm_ds(ds_map)
+            # Anc colorize to RGB
             rgba_img += self._cmp_ds(ds_map)
 
         cont_map = self._nrm_ci(cont_map)

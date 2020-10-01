@@ -10,6 +10,7 @@ class DiscreteStates(Enum):
     UNDEFINED =  1  , 'undefined', 'lightsteelblue', 'Undef.'
     UNIFORM   =  2  , 'uniform'  , 'violet'        , 'Unif. (0, 1)'
     BIMODAL   =  3  , 'bimodal'  , 'mediumpurple'  , 'BiMod. {0, 1}'
+    ZERO      =  4  , 'zero'     , 'white'         , '0'
 
     def __new__(cls, v, text, color, label):
         """
@@ -101,10 +102,13 @@ if __name__ == "__main__":
     value = DiscreteStates.UNIFORM.value
     print('Value Test:', value)
 
+    value = DiscreteStates.ZERO.value
+    print('Value Test:', value)
+
     test_all_list = DiscreteStates.list_all()
     print('All Test:', test_all_list)
 
-    test_ds_list = [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED]
+    test_ds_list = [DiscreteStates.UNIFORM, DiscreteStates.UNDEFINED, DiscreteStates.ZERO]
     print('DS List Test:', test_ds_list)
 
     ordered_test_ds_list = DiscreteStates.sort_ds_list(test_ds_list)
