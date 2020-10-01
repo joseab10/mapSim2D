@@ -1,2 +1,2 @@
-from line import Line
-from polygon import Polygon
+from .line import Line
+from .polygon import Polygon

@@ -1,1 +1,1 @@
-from disc_states import DiscreteStates
+from .disc_states import DiscreteStates
