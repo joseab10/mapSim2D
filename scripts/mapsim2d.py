@@ -53,4 +53,4 @@ if __name__ == '__main__':
         override_str = override_str[0:-1] + "}"
 
     simulator = MapSimulator2D(args.input, arg_search_dirs, override_params=override_str)
-    simulator.convert(args.output, display=args.preview)
+    simulator.simulate(args.output, display=args.preview)

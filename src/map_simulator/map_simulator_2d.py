@@ -10,6 +10,7 @@ from tf2_msgs.msg import TFMessage
 
 import os.path
 from time import sleep, time
+import sys
 
 import simplejson as json
 
@@ -170,10 +171,10 @@ class MapSimulator2D:
         # Initial Position and Orientation
         self._noisy_position = np.zeros(2)
         self._noisy_orientation = np.zeros(1)
-        self._sensor_position = np.zeros(2)
-        self._sensor_orientation = np.zeros(1)
         self._real_position = np.zeros(2)
         self._real_orientation = np.zeros(1)
+        self._real_sensor_position = np.zeros(2)
+        self._real_sensor_orientation = np.zeros(1)
 
         try:
             self._noisy_position = np.array(config['start_pose'][0])
@@ -196,9 +197,9 @@ class MapSimulator2D:
             rospy.logwarn("No moves defined in config file. Considering only starting position")
 
         # Generate Pose list from move commands
-        self._pose_list = []
         pp = self._real_position
         po = self._real_orientation
+        self._pose_list = [[pp, po]]
         for move in moves:
             poses = self._get_poses(move, prev_pose=pp, prev_orientation=po)
             if poses is not None:
@@ -220,10 +221,10 @@ class MapSimulator2D:
         # Add a margin of either the max range of the sensor (too large) or just 1m
         # margin = self._params["max_range"] + 1
         margin = 1
-        self.min_x = minx - margin
-        self.min_y = miny - margin
-        self.max_x = maxx + margin
-        self.max_y = maxy + margin
+        self._min_x = minx - margin
+        self._min_y = miny - margin
+        self._max_x = maxx + margin
+        self._max_y = maxy + margin
 
     @staticmethod
     def _set_dict_param(in_dict, self_dict, key, param_name, default):
@@ -311,7 +312,7 @@ class MapSimulator2D:
 
         return tmp_config
 
-    def convert(self, output_file, display=False):
+    def simulate(self, output_file, display=False):
         """
         Main method for simulating and either saving the data to a ROSBag file, displaying it or both.
 
@@ -329,12 +330,9 @@ class MapSimulator2D:
         bag = None
         out_path = ""
 
-        move_pause = float(self._params['render_move_pause'])
-        meas_pause = float(self._params['render_sense_pause'])
-
         if output_file is not None:
             try:
-                out_path = os.path.expanduser(output_file)
+                out_path = os.path.expandvars(os.path.expanduser(output_file))
                 bag = rosbag.Bag(out_path, "w")
 
             except (IOError, ValueError):
@@ -345,60 +343,33 @@ class MapSimulator2D:
 
         axes = None
 
-        # Publish Initial Pose
-        self._add_tf_messages(bag, first_msg=True)
-
         if display:
             plt.ion()
             figure1 = plt.figure(1)
             axes = figure1.add_subplot(111)
             figure1.show()
 
-            self._render(axes, pause=move_pause)
+        meas_num = int(self._params['meas_per_move'])
+        pose_len = float(len(self._pose_list))
 
-        for pose in self._pose_list:
+        self._add_tf_messages(bag)
 
-            self._move(pose)
+        for p_cnt, pose in enumerate(self._pose_list):
 
-            # Publish pose after move
-            self._add_tf_messages(bag)
+            # For each scan while stopped
+            for _ in range(meas_num):
+                meas, noisy_meas = self._scan(display=display, axes=axes)
 
-            if display:
-                self._render(axes, pause=move_pause)
-
-            meas_num = int(self._params['meas_per_move'])
-            for i in range(meas_num):
-                measurements, endpoints, hits = self._ray_trace()
-
-                if self._params['deterministic']:
-                    noisy_meas = measurements
-                    meas_noise = np.zeros(2)
-                else:
-                    meas_noise = np.random.multivariate_normal(np.zeros(2), self._params['measurement_sigma'],
-                                                           size=measurements.shape[0])
-                    noisy_meas = measurements + meas_noise
-
-                self._add_scan_messages(bag, noisy_meas, det_measurements=measurements)
-
+                self._add_scan_messages(bag, noisy_meas, det_measurements=meas)
                 # Publish pose after each measurement, otherwise gmapping doesn't process the scans
-                self._add_tf_messages(bag, add_gt=False, add_odom=False)
+                self._add_tf_messages(bag)
 
-                if display:
-                    if self._params['deterministic']:
-                        noisy_endpoints = endpoints
-                    else:
-                        range_noises = meas_noise[:, 1]
-                        bearing_noises = meas_noise[:, 0]
-                        bearing_noises = np.array([np.cos(bearing_noises), np.sin(bearing_noises)])
-                        endpoint_noise = range_noises * bearing_noises
-                        endpoint_noise = endpoint_noise.transpose()
-                        noisy_endpoints = endpoints + endpoint_noise
+            # Move robot to new pose(s)
+            self._move(pose, display=display, axes=axes)
+            self._print_status(float(p_cnt) / pose_len)
 
-                    self._render(axes, noisy_endpoints, hits, pause=meas_pause)
-                    self._render(axes, pause=self._params['render_move_pause'] - self._params['render_sense_pause'])
-
-            # Publish the poses after all scans just for good measure and as a way of incrementing the seq number
-            self._add_tf_messages(bag, increment_seq=True)
+        sys.stdout.write('\n')
+        sys.stdout.flush()
 
         rospy.loginfo("Finished simulation")
         if bag is not None:
@@ -575,7 +546,7 @@ class MapSimulator2D:
 
         return None
 
-    def _move(self, pose):
+    def _move(self, pose, display=False, axes=None):
         """
         Take a real pose and add noise to it. Then recompute the laser sensor pose and increment the time.
         If the parameter "deterministic" is set to True, then both the real and noisy poses will be equal.
@@ -588,16 +559,16 @@ class MapSimulator2D:
                         is added to the target pose.
 
         :param pose: (list) Next pose of the robot defined as [[x, y], th]
+        :param display: (bool)[Default: False] Display pose and beams using matplotlib if True.
+        :param axes: [Default: None] Matplotlib axes object to draw to.
 
         :return: None
         """
 
-        old_pos = np.concatenate((self._noisy_position, self._noisy_orientation))
-
         target_position = np.array(pose[0])
         target_orientation = np.array(pose[1])
 
-        if self._params['deterministic']:
+        if self._params['deterministic'] or self._tf_msg_seq == 0:
             self._noisy_position = target_position
             self._noisy_orientation = target_orientation
 
@@ -633,7 +604,7 @@ class MapSimulator2D:
             # Linear error
             else:
 
-                noise = np.random.multivariate_normal(np.zeros_like(old_pos), self._params['pose_sigma'])
+                noise = np.random.multivariate_normal(np.zeros(3), self._params['pose_sigma'])
 
                 self._noisy_position = np.array(target_position + noise[0:1]).flatten()
                 self._noisy_orientation = np.array(target_orientation + noise[2]).flatten()
@@ -644,6 +615,55 @@ class MapSimulator2D:
         # Recompute sensor pose from new robot pose
         self._compute_sensor_pose()
         self._increment_time(self._params['move_time_interval'])
+        self._tf_msg_seq += 1
+
+        if display and (axes is not None):
+            move_pause = float(self._params['render_move_pause'])
+            self._render(axes, pause=move_pause)
+
+    def _scan(self, display=False, axes=None):
+        """
+        Generate a scan using ray tracing, add noise if configured and display it.
+
+        :param display: (bool)[Default: False] Display pose and beams using matplotlib if True.
+        :param axes: [Default: None] Matplotlib axes object to draw to.
+
+        :return: (np.ndarray, np.ndarray) Arrays of Measurements and Noisy Measurements respectively to be
+                                          displayed and published.
+                                          Each 2D array is comprised of [bearings, ranges].
+        """
+
+        meas, endpoints, hits = self._ray_trace()
+
+        if self._params['deterministic']:
+            noisy_meas = meas
+            meas_noise = np.zeros(2)
+        else:
+            meas_noise = np.random.multivariate_normal(np.zeros(2), self._params['measurement_sigma'],
+                                                       size=meas.shape[0])
+            noisy_meas = meas + meas_noise
+
+        if display and (axes is not None):
+            if self._params['deterministic']:
+                noisy_endpoints = endpoints
+            else:
+                range_noises = meas_noise[:, 1]
+                bearing_noises = meas_noise[:, 0]
+                bearing_noises = np.array([np.cos(bearing_noises), np.sin(bearing_noises)])
+                endpoint_noise = range_noises * bearing_noises
+                endpoint_noise = endpoint_noise.transpose()
+                noisy_endpoints = endpoints + endpoint_noise
+
+            meas_pause = float(self._params['render_sense_pause'])
+            meas_off_pause = float(self._params['render_move_pause'] - meas_pause)
+            self._render(axes, noisy_endpoints, hits, pause=meas_pause)
+            self._render(axes, pause=meas_off_pause)
+
+        # Increment time and sequence
+        self._increment_time(self._params['scan_time_interval'])
+        self._laser_msg_seq += 1
+
+        return meas, noisy_meas
 
     def _compute_sensor_pose(self):
         """
@@ -657,8 +677,8 @@ class MapSimulator2D:
         rotation = rotate2d(self._real_orientation)
         translation = rotation.dot(tf_trans)
 
-        self._sensor_position = self._real_position + translation
-        self._sensor_orientation = self._real_orientation + tf_rot
+        self._real_sensor_position = self._real_position + translation
+        self._real_sensor_orientation = self._real_orientation + tf_rot
 
     def _ray_trace(self):
         """
@@ -686,11 +706,11 @@ class MapSimulator2D:
 
         for i in range(int(self._params['num_rays'])):
 
-            theta = self._sensor_orientation + bearing
+            theta = self._real_sensor_orientation + bearing
             c, s = np.cos(theta), np.sin(theta)
             rotation_matrix = np.array([c, s]).flatten()
-            max_ray_endpt = self._sensor_position + self._params['max_range'] * rotation_matrix
-            ray = Line(self._sensor_position, max_ray_endpt)
+            max_ray_endpt = self._real_sensor_position + self._params['max_range'] * rotation_matrix
+            ray = Line(self._real_sensor_position, max_ray_endpt)
 
             min_range = self._params['max_range']
             min_endpt = max_ray_endpt
@@ -751,26 +771,20 @@ class MapSimulator2D:
 
         msg.transforms.append(tran)
 
-    def __add_tf_msg(self, bag, real_pose=False, tf_prefix="", update_laser_tf=True,
-                    publish_map_odom=False, increment_seq=False):
+    def __add_tf_msg(self, msg, real_pose=False, tf_prefix="", update_laser_tf=True,
+                    publish_map_odom=False):
         """
-        Publishes a tf transform message to the ROSBag file with the real/noisy pose of the robot
+        Appends the tf transforms to the passed message with the real/noisy pose of the robot
         and (optionally) the laser sensor pose.
 
-        :param bag: (rosbag.Bag) Open ROSBag file handler where the message will be stored.
+        :param msg: (tf2_msgs.TFMessage) A TF message to append all the transforms to.
         :param real_pose: (bool)[Default: False] Publish real pose if True, noisy pose if False.
         :param tf_prefix: (string)[Default: ""] Prefix to be prepended to each TF Frame
         :param update_laser_tf: (bool)[Default: True] Publish base_link->laser_link tf if True.
         :param publish_map_odom: (bool)[Default: False] Publish the map->odom tf transform if True.
-        :param increment_seq: (bool)[Default: False] Increment the sequence number after adding the message if True.
 
         :return: None
         """
-
-        if bag is None:
-            return
-
-        tf2_msg = TFMessage()
 
         ts = self._current_time
         seq = self._tf_msg_seq
@@ -783,7 +797,7 @@ class MapSimulator2D:
             zero_pos = Point(0.0, 0.0, 0.0)
             zero_rot = quaternion_from_euler(0.0, 0.0, 0.0)
 
-            self.__add_transform(tf2_msg, ts, seq, map_frame, odom_frame, zero_pos, zero_rot)
+            self.__add_transform(msg, ts, seq, map_frame, odom_frame, zero_pos, zero_rot)
 
         if real_pose:
             pos_x = float(self._real_position[0])
@@ -798,7 +812,7 @@ class MapSimulator2D:
         odom_pos = Point(pos_x, pos_y, 0.0)
         odom_rot = quaternion_from_euler(0.0, 0.0, theta)
 
-        self.__add_transform(tf2_msg, ts, seq, odom_frame, base_frame, odom_pos, odom_rot)
+        self.__add_transform(msg, ts, seq, odom_frame, base_frame, odom_pos, odom_rot)
 
         if update_laser_tf:
             laser_frame = tf_frame_normalize(tf_frame_join(tf_prefix, str(self._params['laser_frame'])))
@@ -810,15 +824,9 @@ class MapSimulator2D:
             laser_pos = Point(lp_x, lp_y, 0.0)
             laser_rot = quaternion_from_euler(0.0, 0.0, lp_th)
 
-            self.__add_transform(tf2_msg, ts, seq, base_frame, laser_frame, laser_pos, laser_rot)
+            self.__add_transform(msg, ts, seq, base_frame, laser_frame, laser_pos, laser_rot)
 
-        bag.write("/tf", tf2_msg, self._current_time)
-
-        if increment_seq:
-            self._tf_msg_seq += 1
-
-    def _add_tf_messages(self, bag, add_gt=True, add_odom=True, update_laser_tf=True,
-                         increment_seq=False, first_msg=False):
+    def _add_tf_messages(self, bag, add_gt=True, add_odom=True, update_laser_tf=True):
         """
         Function for adding all TF messages (Noisy pose, GT pose, Odom pose) at once.
 
@@ -826,24 +834,34 @@ class MapSimulator2D:
         :param add_gt: (bool)[Default: True] Publish the ground truth transforms.
         :param add_odom (bool)[Default: True] Publish the plain odometry transforms.
         :param update_laser_tf: (bool)[Default: True] Publish base_link->laser_link tf if True.
-        :param increment_seq: (bool)[Default: False] Increment the sequence number after the last tf message if True.
+
+        :return: None
         """
 
+        if bag is None:
+            return
+
+        tf2_msg = TFMessage()
+
         # Noisy Pose
-        do_increment = increment_seq and not (add_gt or add_odom)
-        self.__add_tf_msg(bag, real_pose=False, tf_prefix="", update_laser_tf=update_laser_tf,
-                          publish_map_odom=first_msg, increment_seq=do_increment)
+        first_msg = self._tf_msg_seq == 0
+        self.__add_tf_msg(tf2_msg, real_pose=False, tf_prefix="", update_laser_tf=update_laser_tf,
+                          publish_map_odom=first_msg)
+
         # Ground Truth Pose
         if add_gt:
-            do_increment = increment_seq and not add_odom
             gt_prefix = str(self._params['gt_prefix'])
-            self.__add_tf_msg(bag, real_pose=True, tf_prefix=gt_prefix, update_laser_tf=update_laser_tf,
-                              publish_map_odom=True, increment_seq=do_increment)
+            self.__add_tf_msg(tf2_msg, real_pose=True, tf_prefix=gt_prefix, update_laser_tf=update_laser_tf,
+                              publish_map_odom=True)
+
         # Odometry Pose
         if add_odom:
             odo_prefix = str(self._params['odo_prefix'])
-            self.__add_tf_msg(bag, real_pose=False, tf_prefix=odo_prefix, update_laser_tf=update_laser_tf,
-                              publish_map_odom=True, increment_seq=increment_seq)
+            self.__add_tf_msg(tf2_msg, real_pose=False, tf_prefix=odo_prefix, update_laser_tf=update_laser_tf,
+                              publish_map_odom=True)
+
+        bag.write("/tf", tf2_msg, self._current_time)
+        bag.flush()
 
     def __add_scan_msg(self, bag, topic, frame, measurements, increment_seq=False):
         """
@@ -877,14 +895,10 @@ class MapSimulator2D:
         meas_msg.range_max = self._params['max_range']
 
         meas_msg.ranges = measurements[:, 1]
-        meas_msg.intensities = []
+        meas_msg.intensities = 4096 * (measurements[:, 1] / self._params['max_range'])
 
         bag.write(topic, meas_msg, self._current_time)
-
-        # if not ground_truth:
-        if increment_seq:
-            self._laser_msg_seq += 1
-            self._increment_time(self._params['scan_time_interval'])
+        bag.flush()
 
     def _add_scan_messages(self, bag, noisy_measurements, det_measurements=None, add_gt=True, add_odom=True):
         """
@@ -904,26 +918,27 @@ class MapSimulator2D:
        :return: None
         """
 
+        if bag is None:
+            return
+
         topic = str(self._params['scan_topic'])
         frame = str(self._params['laser_frame'])
-        do_inc_seq = not (add_gt or add_odom)
 
-        self.__add_scan_msg(bag, topic, frame, noisy_measurements, increment_seq=do_inc_seq)
+        self.__add_scan_msg(bag, topic, frame, noisy_measurements)
 
         if add_gt and det_measurements is not None:
             gt_prefix = str(self._params['gt_prefix'])
             gt_topic = '/' + tf_frame_normalize(tf_frame_join(gt_prefix, topic))
             gt_frame = tf_frame_normalize(tf_frame_join(gt_prefix, frame))
-            do_inc_seq = not add_odom
 
-            self.__add_scan_msg(bag, gt_topic, gt_frame, det_measurements, increment_seq=do_inc_seq)
+            self.__add_scan_msg(bag, gt_topic, gt_frame, det_measurements)
 
         if add_odom:
             odo_prefix = str(self._params['odo_prefix'])
             odo_topic = '/' + tf_frame_normalize(tf_frame_join(odo_prefix, topic))
             odo_frame = tf_frame_normalize(tf_frame_join(odo_prefix, frame))
 
-            self.__add_scan_msg(bag, odo_topic, odo_frame, noisy_measurements, increment_seq=True)
+            self.__add_scan_msg(bag, odo_topic, odo_frame, noisy_measurements)
 
     def _increment_time(self, ms):
         """
@@ -1009,7 +1024,7 @@ class MapSimulator2D:
             return
 
         for i, beam in enumerate(beams):
-            ray = np.array([self._sensor_position, beam])
+            ray = np.array([self._real_sensor_position, beam])
             ray = ray.transpose()
 
             if hits[i]:
@@ -1032,10 +1047,10 @@ class MapSimulator2D:
         ax.clear()
 
         ax.set_aspect('equal', 'box')
-        ax.set_xlim([self.min_x, self.max_x])
-        ax.set_xbound(self.min_x, self.max_x)
-        ax.set_ylim(self.min_y, self.max_y)
-        ax.set_ybound(self.min_y, self.max_y)
+        ax.set_xlim([self._min_x, self._max_x])
+        ax.set_xbound(self._min_x, self._max_x)
+        ax.set_ylim(self._min_y, self._max_y)
+        ax.set_ybound(self._min_y, self._max_y)
 
         self._draw_map(ax)
         self._draw_beams(ax, beam_endpoints, hits)
@@ -1058,3 +1073,30 @@ class MapSimulator2D:
         plt.pause(0.0001)
 
         sleep(pause)
+
+    @staticmethod
+    def _print_status(percent, length=40):
+        """
+        Prints the percentage status of the simulation.
+
+        :param percent: (float) The percentage to be displayed numerically and in the progress bar.
+        :param length: (int)[Default: 40] Length in characters that the progress bar will measure.
+
+        :return: None
+        """
+        
+        # Erase line and move to the beginning
+        sys.stdout.write('\x1B[2K')
+        sys.stdout.write('\x1B[0E')
+
+        progress = "Simulation Progress: ["
+
+        for i in range(0, length):
+            if i < length * percent:
+                progress += '#'
+            else:
+                progress += ' '
+        progress += "] " + str(round(percent * 100.0, 2)) + "%"
+
+        sys.stdout.write(progress)
+        sys.stdout.flush()
