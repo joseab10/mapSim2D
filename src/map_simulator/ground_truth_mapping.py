@@ -1,6 +1,7 @@
 # ROS Libraries
 import rospy
 import tf
+import tf2_ros
 import tf.transformations
 
 # ROS Messages
@@ -15,7 +16,7 @@ from skimage.draw import line
 from collections import defaultdict, deque
 
 # Project Libraries
-from map_simulator.utils import map2world, world2map
+from map_simulator.utils import map2world, world2map, tf_frame_normalize
 
 
 class GroundTruthMapping:
@@ -33,14 +34,14 @@ class GroundTruthMapping:
 
         self._tf_listener = tf.TransformListener()
 
-        self._map_frame = rospy.get_param("~map_frame", "map")
-        self._pose_origin_frame = rospy.get_param("~pose_origin_frame", "map")
-        self._laser_frame = rospy.get_param("~sensor_frame", "/GT/laser_link")
+        self._map_frame = tf_frame_normalize(rospy.get_param("~map_frame", "map"))
+        # self._pose_origin_frame = rospy.get_param("~pose_origin_frame", "/map")
+        # self._laser_frame = rospy.get_param("~sensor_frame", "/GT/laser_link")
 
         max_scan_buffer_len = rospy.get_param("~max_scan_buffer_len", 1000)
         self._occ_threshold = rospy.get_param("~occ_threshold", 0.25)
 
-        self._sub_map = rospy.Subscriber("map", OccupancyGrid, self._map_callback)
+        self._sub_map = rospy.Subscriber("/map", OccupancyGrid, self._map_callback)
         self._sub_scan = rospy.Subscriber("/GT/base_scan", LaserScan, self._sensor_callback)
         self._pub_map = rospy.Publisher("/GT/map", OccupancyGrid, queue_size=1)
 
@@ -68,11 +69,19 @@ class GroundTruthMapping:
         :return: None
         """
 
-        laser_pose = self._tf_listener.lookupTransform(self._pose_origin_frame, self._laser_frame, rospy.Time(0))
+        try:
+            self._tf_listener.waitForTransform(self._map_frame, msg.header.frame_id, msg.header.stamp,
+                                               rospy.Duration(2))
+            laser_pose = self._tf_listener.lookupTransform(self._map_frame, msg.header.frame_id, msg.header.stamp)
+
+        except (tf.LookupException, tf.ConnectivityException,
+                tf.ExtrapolationException, tf2_ros.TransformException) as e:
+            rospy.logwarn("Couldn't find transform for scan {}. {}".format(msg.header.seq, e))
+            return
+
         lp = np.array([laser_pose[0][0], laser_pose[0][1]])  # Laser Pose
         _, _, lp_th = tf.transformations.euler_from_quaternion(laser_pose[1])  # Laser Orientation
 
-        rospy.loginfo("Received scan at pose: ({}, {}), theta: {}".format(lp[0], lp[1], lp_th))
         self._min_range = msg.range_min
         self._max_range = msg.range_max
 
@@ -88,6 +97,9 @@ class GroundTruthMapping:
         endpoints += lp
 
         self._scan_buffer.append((lp, endpoints, max_range))
+
+        rospy.loginfo("Scan {} received and added to buffer at pose ({}): ({:.3f}, {:.3f}), theta: {:.3f}.".format(
+            msg.header.seq, msg.header.frame_id, lp[0], lp[1], lp_th))
 
     def _map_callback(self, msg):
         """
@@ -110,7 +122,7 @@ class GroundTruthMapping:
         self._map_height = msg.info.height
         self._map_width = msg.info.width
         self._map_resolution = msg.info.resolution
-        self._map_origin = np.ndarray([msg.info.origin.position.x, msg.info.origin.position.y])
+        self._map_origin = np.array([msg.info.origin.position.x, msg.info.origin.position.y])
 
         # For each scan in the measurement list, convert the endpoints to the center points of the grid cells,
         # Get the cells crossed by the beams and mark those indexes as occ or free.
@@ -124,8 +136,8 @@ class GroundTruthMapping:
             i_endpoints = world2map(endpoints, self._map_origin, self._map_resolution)
             for i, i_ep in enumerate(i_endpoints):
 
-                line_cells = line(ilp[0], ilp[1], i_ep[0], i_ep[1])
-                line_indexes = np.array(zip(line_cells[0], line_cells[1]))
+                line_rows, line_cols = line(ilp[0], ilp[1], i_ep[0], i_ep[1])
+                line_indexes = np.array(zip(line_rows, line_cols))
 
                 if not max_range[i]:
                     occ_indexes = line_indexes[-1]
@@ -140,17 +152,18 @@ class GroundTruthMapping:
 
         # Compute Occupancy value as hits/visits from the default dicts
         map_shape = (self._map_width, self._map_height)
-        tmp_map = -1 * np.ones(map_shape)
+        occ_map = -1 * np.ones(map_shape, dtype=np.int8)
         for pos, visits in self._map_visits.iteritems():
+            if visits <= 0:
+                continue
+
             ix, iy = world2map(pos, self._map_origin, self._map_resolution)
             hits = self._map_hits[pos]
-            tmp_map[ix, iy] = hits / visits
-
-        tmp_occ = tmp_map >= self._occ_threshold
-        tmp_free = np.logical_and(0 <= tmp_map, tmp_map < self._occ_threshold)
-        occ_map = -1 * np.ones(map_shape, dtype=np.int8)
-        occ_map[tmp_occ] = 100
-        occ_map[tmp_free] = 0
+            tmp_occ = hits / visits
+            if 0 <= tmp_occ < self._occ_threshold:
+                occ_map[ix, iy] = 0
+            elif tmp_occ >= self._occ_threshold:
+                occ_map[ix, iy] = 100
 
         # Build Message and Publish
         map_header = Header()
@@ -169,5 +182,7 @@ class GroundTruthMapping:
         map_msg.header = map_header
         map_msg.info = map_info
         map_msg.data = np.ravel(occ_map.transpose()).tolist()
+
+        rospy.loginfo("Publishing map at {} with seq {}.".format(self._map_frame, msg.header.seq))
 
         self._pub_map.publish(map_msg)
