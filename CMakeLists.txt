@@ -168,6 +168,7 @@ catkin_install_python(
         nodes/occ_map_saver
         nodes/odom_pose
         nodes/pose_error_calc
+
         scripts/mapsim2d.py
     DESTINATION
         ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -195,6 +196,11 @@ catkin_install_python(
 # )
 
 ## Mark other files for installation (e.g. launch and bag files, etc.)
+install(
+    DIRECTORY
+    launch/
+    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
+)
 install(
     DIRECTORY
     robots/
