@@ -67,7 +67,7 @@ class PoseErrorCalculator:
         # CSV Log Path parameters
         default_path = os.path.join("~", "Desktop")
         default_path = os.path.join(default_path, "FMP_logs")
-        log_dir = rospy.get_param("log_dir", default_path)
+        log_dir = rospy.get_param("~log_dir", default_path)
         log_dir = os.path.expandvars(os.path.expanduser(log_dir))
         # CSV Log File parameters
         err_prefix = rospy.get_param("~err_prefix", "pose_err")
