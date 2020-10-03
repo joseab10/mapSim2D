@@ -863,14 +863,13 @@ class MapSimulator2D:
         bag.write("/tf", tf2_msg, self._current_time)
         bag.flush()
 
-    def __add_scan_msg(self, bag, topic, frame, measurements, increment_seq=False):
+    def __add_scan_msg(self, bag, topic, frame, measurements):
         """
         Publish a LaserScan message to a ROSBag file with the given measurement ranges.
 
         :param bag: (rosbag.Bag) Open ROSBag file handler where the message will be stored.
         :param measurements: (ndarray) 2D Array of measurements to be published.
                                        Measured ranges must be in measurements[:, 1]
-        :param increment_seq: (bool)[Default: False] Increment the sequence number after saving the message if True.
 
         :return: None
         """
@@ -1084,7 +1083,7 @@ class MapSimulator2D:
 
         :return: None
         """
-        
+
         # Erase line and move to the beginning
         sys.stdout.write('\x1B[2K')
         sys.stdout.write('\x1B[0E')
