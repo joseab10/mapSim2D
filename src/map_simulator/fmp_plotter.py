@@ -57,14 +57,14 @@ class FMPPlotter:
         # TODO: this two guys:
         # do_img_raw  = rospy.get_param("~img_raw" , False)
         # do_img_fmp  = rospy.get_param("~img_fmp" , False)
-        do_img_stat = rospy.get_param("~img_stat", True)
+        do_img_stat = rospy.get_param("~img_stat", False)
         do_img_mlm  = rospy.get_param("~img_mlm" , False)
         do_img_para = rospy.get_param("~img_para", False)
 
-        self._pub_img = rospy.get_param("~pub_img", True)
+        self._pub_img = rospy.get_param("~pub_img", False)
         self._topic_prefix = rospy.get_param("~pub_topic_prefix", "/fmp_img/")
 
-        self._save_img = rospy.get_param("~save_img", True)
+        self._save_img = rospy.get_param("~save_img", False)
         self._resolution = rospy.get_param("~resolution", 300)
 
         timestamp = datetime.datetime.now().strftime('%y%m%d_%H%M%S')
@@ -115,18 +115,23 @@ class FMPPlotter:
         # Create Publishers
         self._publishers = {}
 
-        if self._pub_img:
-            for img_set_key, img_set_cfg in self._img_cfg.items():
-                fmp_param_sub_required = fmp_param_sub_required or img_set_cfg['do']
-                if img_set_cfg['do']:
-                    for img_cfg in img_set_cfg['img']:
-                        key = img_cfg['key']
-                        topic = self._topic_prefix + img_cfg['topic']  # FIXME: DELETE + '/img'
-                        self._publishers[key] = rospy.Publisher(topic, Image, latch=True, queue_size=1)
+        for img_set_key, img_set_cfg in self._img_cfg.items():
+            fmp_param_sub_required = fmp_param_sub_required or img_set_cfg['do']
+            if self._pub_img and img_set_cfg['do']:
+                for img_cfg in img_set_cfg['img']:
+                    key = img_cfg['key']
+                    topic = self._topic_prefix + img_cfg['topic']
+                    self._publishers[key] = rospy.Publisher(topic, Image, latch=True, queue_size=1)
 
+        something_to_do = (self._pub_img or self._save_img) and fmp_param_sub_required
         # Don't start the node if not needed...
-        if not((self._pub_img or self._save_img) and fmp_param_sub_required):
-            rospy.logerr('Nothing to do here! Why though?!?')
+        if not something_to_do:
+            rospy.logerr("Nothing to do here! Why though?!?")
+            rospy.logdebug("Setting values:")
+            rospy.logdebug("\tpub_img: {}, save_img: {}".format(self._pub_img, self._save_img))
+            rospy.logdebug("\tdo_img_stat: {}, do_img_mlm: {}, do_img_para: {}".format(do_img_stat,
+                                                                                       do_img_mlm, do_img_para))
+            rospy.logdebug("\tsomething_to_do: {}".format(something_to_do))
             rospy.signal_shutdown('Nothing to do')
             return
 
@@ -143,19 +148,23 @@ class FMPPlotter:
             if not os.path.exists(self._save_dir):
                 os.makedirs(self._save_dir)
 
-        self._busy = False
-        rospy.Timer(rospy.Duration(2), self._plot_from_queue)
+        self._busy = False  # Thread lock flag for plot_from_queue
+        rospy.Timer(rospy.Duration(1), self._plot_from_queue)
 
         rospy.spin()
 
-    def _plot_from_queue(self, _event):
+    def _plot_from_queue(self, event):
         """
-        FIXME
+        Function called periodically to check if there are any maps in the queue to be plotted.
+        While there are still alpha and beta maps stored in the queue, it will plot the configured images.
+
+        :param event: Caller event. Unused except for logging.
+
+        :return: None
         """
-        # Unused event information
 
         if self._busy:
-            rospy.loginfo('Another thread is already plotting')
+            rospy.loginfo("Another thread is already plotting. Caller: {}".format(event))
 
         else:
             self._busy = True
@@ -165,18 +174,26 @@ class FMPPlotter:
                 self._plot(seq, self._alpha_beta_dict[seq])
                 del self._alpha_beta_dict[seq]
 
-            self._busy = False
+        self._busy = False
 
     def _plot(self, seq, dic):
         """
-        FIXME
+        Generates the desired images and plots for a given sequence of alpha and beta maps.
+
+        :param seq: (int) Sequence number of the received maps
+        :params dic: (dict) Dictionary containing the alpha and beta maps, as well as their prior values.
+                            It should be formatted as:
+                            dic = {'alpha': {'prior': (int), 'map': (2D np.ndarray)},
+                                   'beta' : {'prior': (int), 'map': (2D np.ndarray)}}
+
+        :return: None
         """
 
         if not self._pub_img and not self._save_img:
             return
 
-        alpha = dic['alpha']['map'] + dic['alpha']['prior']  # FIXME: DELETE self._alpha_prior + self._alpha_map
-        beta = dic['beta']['map'] + dic['beta']['prior']  # FIXME: DELETE self._beta_prior + self._beta_map
+        alpha = dic['alpha']['map'] + dic['alpha']['prior']
+        beta = dic['beta']['map'] + dic['beta']['prior']
 
         for img_set_key, img_set_cfg in self._img_cfg.items():
             if img_set_cfg['do']:
@@ -296,7 +313,12 @@ class FMPPlotter:
 
     def _add_to_dict(self, a_b, msg):
         """
-        FIXME
+        Adds the received map and prior to the object's buffer dictionary.
+
+        :param a_b: (string) Indicates which of the parameters has been received: "alpha"|"beta"
+        :param msg: (gmapping.doubleMap) Double Map message containing the prior and map parameters.
+
+        :return: None
         """
 
         seq = msg.header.seq
@@ -325,6 +347,7 @@ class FMPPlotter:
     def _map2d_alpha_callback(self, msg):
         """
         Method called when receiving a map with the alpha parameters of the full posterior map distribution.
+        It adds the received map to the buffer dictionary until both parameter maps have been received.
 
         :param msg: (gmapping.doubleMap) A floating point gmapping map message.
 
@@ -336,6 +359,7 @@ class FMPPlotter:
     def _map2d_beta_callback(self, msg):
         """
         Method called when receiving a map with the beta parameters of the full posterior map distribution.
+        It adds the received map to the buffer dictionary until both parameter maps have been received.
 
         :param msg: (gmapping.doubleMap) A floating point gmapping map message.
 
@@ -345,6 +369,22 @@ class FMPPlotter:
         self._add_to_dict('beta', msg)
 
     def _calc_mean(self, alpha, beta):
+        """
+        Takes the alpha and beta parameter maps and computes the mean depending on the mapping model used.
+
+        :param alpha: (nd.array) A 2D array containing the alpha parameters of the PDF of the map posterior.
+        :param beta: (nd.array) A 2D array containing the beta parameters of the PDF of the map posterior.
+
+        :return: (tuple) A tuple consisting of:
+                             * means (ma.array),
+                             * special-case discrete-valued means (ma.array),
+                             * list of special discrete states (list)
+                             * minimum continuous value (float) for color map scaling
+                             * maximum continuous value (float) for color map scaling
+                             * whether the map represents occupancy (bool)
+                             * whether the color scale should be logarithmic (bool)
+        """
+
         shape = alpha.shape
 
         v_min = 0
@@ -402,6 +442,22 @@ class FMPPlotter:
         return means, means_ds, ds_list, v_min, v_max, occ, log_scale
 
     def _calc_var(self, alpha, beta):
+        """
+        Takes the alpha and beta parameter maps and computes the variance depending on the mapping model used.
+
+        :param alpha: (nd.array) A 2D array containing the alpha parameters of the PDF of the map posterior.
+        :param beta: (nd.array) A 2D array containing the beta parameters of the PDF of the map posterior.
+
+        :return: (tuple) A tuple consisting of:
+                             * variances (ma.array),
+                             * special-case discrete-valued variances (ma.array),
+                             * list of special discrete states (list)
+                             * minimum continuous value (float) for color map scaling
+                             * maximum continuous value (float) for color map scaling
+                             * whether the map represents occupancy (bool)
+                             * whether the color scale should be logarithmic (bool)
+        """
+
         shape = alpha.shape
 
         v_min = 0
@@ -461,6 +517,21 @@ class FMPPlotter:
         return variances, vars_ds, ds_list, v_min, v_max, occ, log_scale
 
     def _calc_mlm(self, alpha, beta):
+        """
+        Takes the alpha and beta parameter maps and computes the most-likely map depending on the mapping model used.
+
+        :param alpha: (nd.array) A 2D array containing the alpha parameters of the PDF of the map posterior.
+        :param beta: (nd.array) A 2D array containing the beta parameters of the PDF of the map posterior.
+
+        :return: (tuple) A tuple consisting of:
+                             * most-likely map values (ma.array),
+                             * special-case discrete-valued most-likely map values (ma.array),
+                             * list of special discrete states (list)
+                             * minimum continuous value (float) for color map scaling
+                             * maximum continuous value (float) for color map scaling
+                             * whether the map represents occupancy (bool)
+                             * whether the color scale should be logarithmic (bool)
+        """
         shape = alpha.shape
 
         numerator = ma.masked_array(alpha - 1)
@@ -530,8 +601,40 @@ class FMPPlotter:
 
     @staticmethod
     def _calc_para_alpha(alpha, _):
+        """
+        Simply returns the alpha parameter map.
+
+        :param alpha: (nd.array) A 2D array containing the alpha parameters of the PDF of the map posterior.
+        :param _: Unused
+
+        :return: (tuple) A tuple consisting of:
+                             * alpha (np.ndarray),
+                             * no special cases (None)
+                             * no special cases (empty list)
+                             * minimum continuous value (0) for color map scaling
+                             * maximum continuous value (None: i.e. unbounded) for color map scaling
+                             * map does not represent occupancy (False)
+                             * color scale should be linear (False)
+        """
+
         return alpha, None, [], 0, None, False, False
 
     @staticmethod
     def _calc_para_beta(_, beta):
+        """
+        Simply returns the beta parameter map.
+
+        :param _: Unused
+        :param beta: (nd.array) A 2D array containing the beta parameters of the PDF of the map posterior.
+
+        :return: (tuple) A tuple consisting of:
+                             * beta (np.ndarray),
+                             * no special cases (None)
+                             * no special cases (empty list)
+                             * minimum continuous value (0) for color map scaling
+                             * maximum continuous value (None: i.e. unbounded) for color map scaling
+                             * map does not represent occupancy (False)
+                             * color scale should be linear (False)
+        """
+
         return beta, None, [], 0, None, False, False
