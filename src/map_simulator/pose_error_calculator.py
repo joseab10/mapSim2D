@@ -16,6 +16,7 @@ import numpy as np
 import os
 import os.path
 import datetime
+import time
 
 from map_simulator.geometry.transform import quaternion_axis_angle
 from map_simulator.utils import tf_frame_eq
@@ -163,6 +164,7 @@ class PoseErrorCalculator:
             sl_mo_r = np.array(self._last_sl_mo_pose[1])
             sl_ob_t = np.array(self._last_sl_ob_pose[0])
             sl_ob_r = np.array(self._last_sl_ob_pose[1])
+            od_pose = (sl_ob_t, sl_ob_r)
 
             # Convert to Homogeneous Transformation Matrices
             tf_ros = TransformerROS()
@@ -204,7 +206,7 @@ class PoseErrorCalculator:
             self._cum_tot_err += tot_error
 
             if self._log_error:
-                self._append_row(self._last_seq, self._last_ts, self._last_gt_pose, sl_pose, rel_pose,
+                self._append_row(self._last_seq, self._last_ts, self._last_gt_pose, od_pose, sl_pose, rel_pose,
                                  trans_error, rot_error, tot_error)
 
             if self._publish_error:
@@ -224,13 +226,14 @@ class PoseErrorCalculator:
             self._last_sl_mo_pose = sl_mo_pose
             self._last_sl_ob_pose = sl_ob_pose
 
-    def _append_row(self, seq, ts, gt_pose, slam_pose, rel_pose, trans_err, rot_err, tot_err):
+    def _append_row(self, seq, ts, gt_pose, odo_pose, slam_pose, rel_pose, trans_err, rot_err, tot_err):
         """
         Append a row to the CSV file with the poses and errors
 
         :param seq: (int) Sequence number of the Ground Truth Pose message
         :param ts: (rospy.Time) Timestamp of the Ground Truth Pose message
         :param gt_pose: (tuple) Ground Truth Pose and orientation ([x, y, z], [x, y, z, w])
+        :param odo_pose: (tuple) Pure Odometry Pose and orientation ([x, y, z], [x, y, z, w])
         :param slam_pose: (tuple) SLAM Pose and orientation ([x, y, z], [x, y, z, w])
         :param rel_pose: (tuple) Relative Pose and orientation ([x, y, z], [x, y, z, w])
         :param trans_err: (float) Step translational error
@@ -245,14 +248,27 @@ class PoseErrorCalculator:
 
         gt_p_x, gt_p_y, gt_p_z = gt_pose[0]
         gt_r_x, gt_r_y, gt_r_z, gt_r_w = gt_pose[1]
+        od_p_x, od_p_y, od_p_z = odo_pose[0]
+        od_r_x, od_r_y, od_r_z, od_r_w = odo_pose[1]
         sl_p_x, sl_p_y, sl_p_z = slam_pose[0]
         sl_r_x, sl_r_y, sl_r_z, sl_r_w = slam_pose[1]
         rl_p_x, rl_p_y, rl_p_z = rel_pose[0]
         rl_r_x, rl_r_y, rl_r_z, rl_r_w = rel_pose[1]
 
+        ts_time = time.localtime(ts.secs)
+        ts_yy = ts_time.tm_year
+        ts_mm = ts_time.tm_mon
+        ts_dd = ts_time.tm_mday
+        ts_h = ts_time.tm_hour
+        ts_m = ts_time.tm_min
+        ts_s = ts_time.tm_sec
+        ts_ns = ts.nsecs
+
         row = [
-            seq, ts,
+            seq,
+            ts_yy, ts_mm, ts_dd, ts_h, ts_m, ts_s, ts_ns,
             gt_p_x, gt_p_y, gt_p_z, gt_r_x, gt_r_y, gt_r_z, gt_r_w,
+            od_p_x, od_p_y, od_p_z, od_r_x, od_r_y, od_r_z, od_r_w,
             sl_p_x, sl_p_y, sl_p_z, sl_r_x, sl_r_y, sl_r_z, sl_r_w,
             rl_p_x, rl_p_y, rl_p_z, rl_r_x, rl_r_y, rl_r_z, rl_r_w,
             trans_err, self._cum_trans_err,
@@ -281,24 +297,30 @@ class PoseErrorCalculator:
         rospy.loginfo("Saving error log to {}".format(self._err_file))
 
         col_head1 = [
-            "SEQ", "Stamp",
+            "SEQ",
+            "TIME STAMP", "", "", "", "", "", "",
             "GT", "", "", "", "", "", "",
+            "PURE ODOMETRY", "", "", "", "", "", "",
             "SLAM", "", "", "", "", "", "",
             "REL", "", "", "", "", "", "",
             "ERROR", "", "", "", "", ""
         ]
 
         col_head2 = [
-            "", "",
+            "",
+            "", "", "", "", "", "", "",
+            "Pose", "", "", "Orientation", "", "", "",
             "Pose", "", "", "Orientation", "", "", "",
             "Pose", "", "", "Orientation", "", "", "",
             "Pose", "", "", "Orientation", "", "", "",
             "Translational", "", "Angular", "",
-            "Total (err_t + lambda * err_rot)[lambda = " + str(self._lambda) + "]", ""
+            "Total (err_t + lambda * err_rot)[lambda = " + str(self._lambda) + "[m^2/rad^2]]", ""
         ]
 
         col_head3 = [
-            "", "",
+            "",
+            "Date", "", "", "Time", "", "", "",
+            "x", "y", "z", "x", "y", "z", "w",
             "x", "y", "z", "x", "y", "z", "w",
             "x", "y", "z", "x", "y", "z", "w",
             "x", "y", "z", "x", "y", "z", "w",
@@ -307,7 +329,19 @@ class PoseErrorCalculator:
             "Step", "Cumulative"
         ]
 
-        col_headers = [col_head1, col_head2, col_head3]
+        col_head4 = [
+            "",
+            "[Y]", "[M]", "[D]", "[h]", "[m]", "[s]", "[ns]",
+            "[m]", "[m]", "[m]", "", "", "", "",
+            "[m]", "[m]", "[m]", "", "", "", "",
+            "[m]", "[m]", "[m]", "", "", "", "",
+            "[m]", "[m]", "[m]", "", "", "", "",
+            "[m^2]", "[m^2]",
+            "[rad^2]", "[rad^2]",
+            "[m^2]", "[m^2]",
+        ]
+
+        col_headers = [col_head1, col_head2, col_head3, col_head4]
 
         csv_header = self._newline.join([self._delim.join(col_header) for col_header in col_headers])
         csv_header += self._newline
