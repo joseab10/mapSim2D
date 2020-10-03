@@ -88,6 +88,18 @@ def tf_frame_normalize(tf_frame):
     return tf_frame_join(tf_frame_split(tf_frame))
 
 
+def topic_normalize(topic):
+    """
+    Function for normalizing a topic address string.
+
+    :param topic: (string) String of a single ROS topic address.
+
+    :return: (string) A standardized topic address.
+    """
+
+    return '/' + tf_frame_normalize(topic)
+
+
 def tf_frame_eq(tf1, tf2):
     """
     Function for determining whether two TF chains are equal by ignoring slashes
