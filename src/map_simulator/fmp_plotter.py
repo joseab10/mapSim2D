@@ -21,6 +21,7 @@ from cv_bridge import CvBridge
 import os
 import os.path
 import datetime
+from multiprocessing import Process
 
 # Data Structure Libraries
 from collections import deque
@@ -102,8 +103,6 @@ class FMPPlotter:
             "par": img_par_cfg
         }
 
-        fmp_param_sub_required = False
-
         # Queues for storing messages
         self._alpha_beta_dict = {}
         self._alpha_beta_queue = deque()
@@ -115,15 +114,17 @@ class FMPPlotter:
         # Create Publishers
         self._publishers = {}
 
+        self._img_cnt = 0
         for img_set_key, img_set_cfg in self._img_cfg.items():
-            fmp_param_sub_required = fmp_param_sub_required or img_set_cfg['do']
-            if self._pub_img and img_set_cfg['do']:
-                for img_cfg in img_set_cfg['img']:
-                    key = img_cfg['key']
-                    topic = self._topic_prefix + img_cfg['topic']
-                    self._publishers[key] = rospy.Publisher(topic, Image, latch=True, queue_size=1)
+            if img_set_cfg['do']:
+                self._img_cnt += len(img_set_cfg['img'])
+                if self._pub_img:
+                    for img_cfg in img_set_cfg['img']:
+                        key = img_cfg['key']
+                        topic = self._topic_prefix + img_cfg['topic']
+                        self._publishers[key] = rospy.Publisher(topic, Image, latch=True, queue_size=1)
 
-        something_to_do = (self._pub_img or self._save_img) and fmp_param_sub_required
+        something_to_do = (self._pub_img or self._save_img) and (self._img_cnt > 0)
         # Don't start the node if not needed...
         if not something_to_do:
             rospy.logerr("Nothing to do here! Why though?!?")
@@ -139,17 +140,19 @@ class FMPPlotter:
         # To map model
         rospy.Subscriber(self._sub_topic_map_model, mapModel, self._map_model_callback)
         # To alpha and beta parameters (if publishing or saving images, and at least one image is generated)
-        if (self._pub_img or self._save_img) and fmp_param_sub_required:
+        if (self._pub_img or self._save_img) and (self._img_cnt > 0):
             rospy.Subscriber(self._sub_topic_fmp_alpha, doubleMap, self._map2d_alpha_callback, queue_size=1)
             rospy.Subscriber(self._sub_topic_fmp_beta, doubleMap, self._map2d_beta_callback, queue_size=1)
 
         # Create save path if not exists
-        if self._save_img and fmp_param_sub_required:
+        if self._save_img and (self._img_cnt > 0):
             if not os.path.exists(self._save_dir):
                 os.makedirs(self._save_dir)
 
         self._busy = False  # Thread lock flag for plot_from_queue
-        rospy.Timer(rospy.Duration(1), self._plot_from_queue)
+        self._plot_timer = rospy.Timer(rospy.Duration(1), self._plot_from_queue, oneshot=False)
+
+        self._max_subprocs = rospy.get_param("~max_subprocs", 4 * self._img_cnt)
 
         rospy.spin()
 
@@ -163,18 +166,111 @@ class FMPPlotter:
         :return: None
         """
 
+        rospy.loginfo("Plot timer called at: {}. Last execution duration: {}".format(event.current_real,
+                                                                                     event.last_duration))
+
+        sub_proc = {}
+
         if self._busy:
-            rospy.loginfo("Another thread is already plotting. Caller: {}".format(event))
+            rospy.loginfo("Another call is already plotting")
+            return
 
-        else:
-            self._busy = True
+        self._busy = True
 
-            while self._alpha_beta_queue:
+        while self._alpha_beta_queue:
+            if len(sub_proc) < self._max_subprocs / self._img_cnt:
                 seq = self._alpha_beta_queue.popleft()
-                self._plot(seq, self._alpha_beta_dict[seq])
-                del self._alpha_beta_dict[seq]
+                p = Process(target=self._plot, args=(seq, self._alpha_beta_dict[seq]))
+                p.start()
+                rospy.loginfo("Starting plotting process for seq {}.".format(seq))
+                sub_proc[seq] = p
+                #self._plot(seq, self._alpha_beta_dict[seq])
+            else:
+                rospy.loginfo("Maximum number of processes ({}) reached. Waiting for some to finish.".format(
+                    self._max_subprocs))
+
+            for seq, p in sub_proc.items():
+                p.join(timeout=0)
+                if not p.is_alive():
+                    rospy.loginfo("Finished plotting process for seq {}.".format(seq))
+                    del self._alpha_beta_dict[seq]
+                    del sub_proc[seq]
+
+            rospy.sleep(1)
 
         self._busy = False
+
+    def __plot_sub_process(self, seq, img_cfg, alpha, beta):
+        img_key = img_cfg['key']
+        img_calc = img_cfg['calc_f']
+
+        #rospy.loginfo("\tComputing continuous and discrete images for %s.", img_key)
+
+        # Compute the images to plot using the configured calculation_function ('calc_f')
+        img_cont, img_disc, ds_list, v_min, v_max, occ, log_scale = img_calc(alpha, beta)
+
+        self._map_colorizer.set_disc_state_list(ds_list)
+        self._map_colorizer.set_cont_bounds(img_cont, v_min=v_min, v_max=v_max, occupancy_map=occ,
+                                            log_scale=log_scale)
+
+        rgba_img = self._map_colorizer.colorize(img_cont, img_disc)
+
+        del img_cont
+        del img_disc
+
+        if self._save_img:
+            path = os.path.join(self._save_dir, img_cfg['dir'])
+
+            if not os.path.exists(path):
+                os.makedirs(path)
+
+            filename = img_cfg['file_prefix'] + '_s' + str(seq)
+            raw_filename = 'raw_' + filename + '.png'
+            filename = filename + '.svg'
+            mlp_path = os.path.join(path, filename)
+            raw_path = os.path.join(path, raw_filename)
+
+            fig, ax = plt.subplots(figsize=[20, 20])
+            ax.imshow(rgba_img, extent=self._extent)
+            self._map_colorizer.draw_cb_cont(fig)
+            if ds_list:
+                self._map_colorizer.draw_cb_disc(fig)
+
+            #rospy.loginfo("\t\tSaving image %s to %s.", img_key, mlp_path)
+            plt.savefig(mlp_path, bbox_inches='tight', dpi=self._resolution)
+            plt.close()
+            del fig
+            del ax
+
+            #rospy.loginfo("\t\tSaving image %s to %s.", img_key, raw_path)
+            plt.imsave(raw_path, rgba_img, vmin=0, vmax=1)
+            plt.close()
+
+            #rospy.loginfo("\t\tImages saved.")
+
+        if self._pub_img:
+            publisher = self._publishers[img_key]
+
+            #rospy.loginfo("\t\tGenerating image message to %s.", img_key)
+
+            rgba_img = 255 * rgba_img
+            rgba_img = rgba_img.astype(np.uint8)
+
+            image_msg_head = Header()
+
+            image_msg_head.seq = seq
+            image_msg_head.stamp = rospy.Time.now()
+            image_msg_head.frame_id = 'map'
+
+            br = CvBridge()
+            image_msg = br.cv2_to_imgmsg(rgba_img, encoding="rgba8")
+            del rgba_img
+            image_msg.header = image_msg_head
+
+            publisher.publish(image_msg)
+            del image_msg
+
+            #rospy.loginfo("\t\tImage published.")
 
     def _plot(self, seq, dic):
         """
@@ -195,81 +291,37 @@ class FMPPlotter:
         alpha = dic['alpha']['map'] + dic['alpha']['prior']
         beta = dic['beta']['map'] + dic['beta']['prior']
 
+        subprocs = {}
+
         for img_set_key, img_set_cfg in self._img_cfg.items():
             if img_set_cfg['do']:
-                rospy.loginfo('Plotting %s', img_set_key)
+                rospy.loginfo('\tPlotting %s', img_set_key)
                 for img_cfg in img_set_cfg['img']:
-
                     img_key = img_cfg['key']
-                    img_calc = img_cfg['calc_f']
+                    #rospy.loginfo("\tComputing continuous and discrete images for %s.", img_key)
+                    p = Process(target=self.__plot_sub_process, args=(seq, img_cfg, alpha, beta))
+                    subprocs[img_key] = p
 
-                    rospy.loginfo("\tComputing continuous and discrete images for %s.", img_key)
+        # Start sub-processes
+        for key, p in subprocs.items():
+            p.start()
+            rospy.loginfo("\t\tSubprocess for generating images for {} seq {} Started.".format(key, seq))
 
-                    # Compute the images to plot using the configured calculation_function ('calc_f')
-                    img_cont, img_disc, ds_list, v_min, v_max, occ, log_scale = img_calc(alpha, beta)
+        save_pub_str = "\t\tImage for {} seq {} "
+        if self._save_img:
+            if self._pub_img:
+                save_pub_str += "Saved and Published."
+            else:
+                save_pub_str += "Saved."
+        else:
+            save_pub_str += "Published."
 
-                    self._map_colorizer.set_disc_state_list(ds_list)
-                    self._map_colorizer.set_cont_bounds(img_cont, v_min=v_min, v_max=v_max, occupancy_map=occ,
-                                                        log_scale=log_scale)
+        # Wait for sub-processes to finish
+        for key, p in subprocs.items():
+            p.join()
+            rospy.loginfo(save_pub_str.format(key, seq))
 
-                    rgba_img = self._map_colorizer.colorize(img_cont, img_disc)
 
-                    del img_cont
-                    del img_disc
-
-                    if self._save_img:
-                        path = os.path.join(self._save_dir, img_cfg['dir'])
-
-                        if not os.path.exists(path):
-                            os.makedirs(path)
-
-                        filename = img_cfg['file_prefix'] + '_s' + str(seq)
-                        raw_filename = 'raw_' + filename + '.png'
-                        filename = filename + '.svg'
-                        mlp_path = os.path.join(path, filename)
-                        raw_path = os.path.join(path, raw_filename)
-
-                        fig, ax = plt.subplots(figsize=[20, 20])
-                        ax.imshow(rgba_img, extent=self._extent)
-                        self._map_colorizer.draw_cb_cont(fig)
-                        if ds_list:
-                            self._map_colorizer.draw_cb_disc(fig)
-
-                        rospy.loginfo("\t\tSaving image %s to %s.", img_key, mlp_path)
-                        plt.savefig(mlp_path, bbox_inches='tight', dpi=self._resolution)
-                        plt.close()
-                        del fig
-                        del ax
-
-                        rospy.loginfo("\t\tSaving image %s to %s.", img_key, raw_path)
-                        plt.imsave(raw_path, rgba_img, vmin=0, vmax=1)
-                        plt.close()
-
-                        rospy.loginfo("\t\tImages saved.")
-
-                    if self._pub_img:
-                        publisher = self._publishers[img_key]
-
-                        rospy.loginfo("\t\tGenerating image message to %s.", img_key)
-
-                        rgba_img = 255 * rgba_img
-                        rgba_img = rgba_img.astype(np.uint8)
-
-                        image_msg_head = Header()
-
-                        image_msg_head.seq = seq
-                        image_msg_head.stamp = rospy.Time.now()
-                        image_msg_head.frame_id = 'map'
-
-                        br = CvBridge()
-                        image_msg = br.cv2_to_imgmsg(rgba_img, encoding="rgba8")
-                        del rgba_img
-                        image_msg.header = image_msg_head
-
-                        publisher.publish(image_msg)
-                        del image_msg
-
-                        rospy.loginfo("\t\tImage published.")
 
     def _map_reshape(self, msg):
         """
