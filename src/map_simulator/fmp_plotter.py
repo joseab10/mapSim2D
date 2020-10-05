@@ -52,7 +52,6 @@ class FMPPlotter:
         self._sub_topic_fmp_beta = "fmp_beta"
 
         self._map_model = None
-        self._extent = [0, 100, 0, 100]
 
         # TODO: this two guys:
         # do_img_raw  = rospy.get_param("~img_raw" , False)
@@ -192,6 +191,13 @@ class FMPPlotter:
         if not self._pub_img and not self._save_img:
             return
 
+        extent_a = dic['alpha']['extent']
+        extent_b = dic['beta']['extent']
+        if extent_a != extent_b:
+            raise ValueError("Map extent of alpha {} differs from beta {}!".format(extent_a, extent_b))
+
+        self._map_colorizer.set_wm_extent(extent_a)
+
         alpha = dic['alpha']['map'] + dic['alpha']['prior']
         beta = dic['beta']['map'] + dic['beta']['prior']
 
@@ -230,7 +236,7 @@ class FMPPlotter:
                         raw_path = os.path.join(path, raw_filename)
 
                         fig, ax = plt.subplots(figsize=[20, 20])
-                        ax.imshow(rgba_img, extent=self._extent)
+                        ax.imshow(rgba_img, extent=extent_a)
                         self._map_colorizer.draw_cb_cont(fig)
                         if ds_list:
                             self._map_colorizer.draw_cb_disc(fig)
@@ -271,21 +277,6 @@ class FMPPlotter:
 
                         rospy.loginfo("\t\tImage published.")
 
-    def _map_reshape(self, msg):
-        """
-        Reshapes a map's data from a 1D list to a 2D ndarray.
-
-        :param msg: (gmapping.doubleMap) A double precision floating point gmapping map message.
-
-        :return: (ndarray) The map, reshaped as a 2D matrix.
-        """
-
-        reshaped_map = map_msg_to_numpy(msg)
-        self._extent = map_msg_extent(msg)
-        self._map_colorizer.set_wm_extent(self._extent)
-
-        return reshaped_map
-
     def _map_model_callback(self, msg):
         """
         Method called when receiving a map model type. It just sets the local field with the message's value.
@@ -325,7 +316,8 @@ class FMPPlotter:
 
         map_dict = {
             a_b: {
-                'map': self._map_reshape(msg),
+                'map': map_msg_to_numpy(msg),
+                'extent': map_msg_extent(msg),
                 'prior': msg.param
             }
         }

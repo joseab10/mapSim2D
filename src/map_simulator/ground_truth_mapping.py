@@ -181,7 +181,7 @@ class GroundTruthMapping:
         map_msg = OccupancyGrid()
         map_msg.header = map_header
         map_msg.info = map_info
-        map_msg.data = np.ravel(occ_map.transpose()).tolist()
+        map_msg.data = np.ravel(np.transpose(occ_map)).tolist()
 
         rospy.loginfo("Publishing map at {} with seq {}.".format(self._map_frame, msg.header.seq))
 

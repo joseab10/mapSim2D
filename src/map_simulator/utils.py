@@ -1,20 +1,22 @@
 import numpy as np
 
 
-def map_msg_to_numpy(msg):
+def map_msg_to_numpy(msg, dtype=np.float64):
     """
     Reshapes a map's data from a 1D list to a 2D ndarray.
 
     :param msg: (nav_msgs.OccupancyMap|gmapping.doubleMap) A map message.
+    :param dtype: (numpy type)[Default: np.float64] Type of the array to be returned.
 
-    :return: (ndarray) The map, reshaped as a 2D matrix.
+    :return: (numpy ndarray) The map, reshaped as a 2D matrix.
     """
     w = msg.info.width
     h = msg.info.height
 
     reshaped_map = np.array(msg.data)
-    reshaped_map = reshaped_map.reshape(w, h)
+    reshaped_map = reshaped_map.reshape(h, w)
     reshaped_map = np.flipud(reshaped_map)
+    reshaped_map = reshaped_map.astype(dtype)
 
     return reshaped_map
 
