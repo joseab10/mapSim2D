@@ -299,10 +299,10 @@ class PoseErrorCalculator:
         col_head1 = [
             "SEQ",
             "TIME STAMP", "", "", "", "", "", "",
-            "GT", "", "", "", "", "", "",
-            "PURE ODOMETRY", "", "", "", "", "", "",
-            "SLAM", "", "", "", "", "", "",
-            "REL", "", "", "", "", "", "",
+            "GT POSE", "", "", "", "", "", "",
+            "PURE ODOMETRY POSE", "", "", "", "", "", "",
+            "SLAM POSE", "", "", "", "", "", "",
+            "RELATIVE POSE /GT/base_link->/SLAM/base_link", "", "", "", "", "", "",
             "ERROR", "", "", "", "", ""
         ]
 
