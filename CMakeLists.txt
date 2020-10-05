@@ -170,6 +170,8 @@ catkin_install_python(
         nodes/pose_error_calc
 
         scripts/mapsim2d.py
+
+        launch/experiment.py
     DESTINATION
         ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
