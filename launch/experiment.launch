@@ -10,6 +10,8 @@
     <!-- ___________________________________________________________
         Main arguments
     ____________________________________________________________ -->
+    <arg name="do_slam" default="true"
+         doc="(bool)[Default: true] Run the OpenSlam Gmapping Node." />
     <arg name="do_plots" default="true"
          doc="(bool)[Default: true] Run the fmp_plot and occ_map_saver nodes to save the statistical and occupation plots of the map."/>
     <arg name="do_error" default="true"
@@ -21,6 +23,8 @@
          doc="(bool)[Default: true] Run the gt_mapping node for generation the Pure Odometry map."/>
     <arg name="do_rviz" default="true"
          doc="(bool)[Default: true] Run RVIZ to visualize the progress graphically in real time."/>
+    <arg name="do_gsp_debug" default="true"
+         doc="(bool)[Default: true] Output all of the GridSlam Processor data to a csv file." />
 
 
     <arg name="bag" default="10Loop"
@@ -144,8 +148,7 @@
     #                                                                                                             #
     ###############################################################################################################
     -->
-    <node pkg="gmapping" type="slam_gmapping" name="slam" output="log">
-        <env name="ROS_LOG_DIR" value="~/Desktop" />
+    <node pkg="gmapping" type="slam_gmapping" name="slam" output="log" if="$(arg do_slam)">
         <!--
         =========================================================================================================
             Topic Remaps
@@ -158,6 +161,7 @@
             Parameters
         =========================================================================================================
         -->
+        <param name="outputLog" value="$(arg path_log)/gsp_debug_$(arg ts)_$(arg pfx_mm)_$(arg pfx_pw).csv" if="$(arg do_gsp_debug)"/>
         <!-- ___________________________________________________________
             TF Frames
         ____________________________________________________________ -->
@@ -288,9 +292,7 @@
         <param name="alpha0" value="$(arg alpha0)"/>
         <param name="beta0" value="$(arg beta0)"/>
 
-
     </node>
-
 
     <node name="fmp_plot" pkg="map_simulator" type="fmp_plot" output="log" if="$(arg do_plots)">
         <env name="ROS_LOG_DIR" value="~/Desktop" />
