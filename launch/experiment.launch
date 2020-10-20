@@ -59,14 +59,14 @@
 
     <arg name="alpha0" default="1"
          doc="(float)[Default: 1.0] Value for the alpha parameter of the prior distribution."/>
-    <arg name="beta0" default="$(eval 0 if mm_dcy else 1)"
-         doc="(float)[Default: 1 for Ref, 0 for Dec] Value for the beta parameter of the prior distribution."/>
+    <arg name="beta0" default="$(eval 1e-6 if mm_dcy else 1)"
+         doc="(float)[Default: 1 for Ref, 1e-6 for Dec] Value for the beta parameter of the prior distribution."/>
 
     <arg name="exp_pfx" default="exp"
          doc="(string)[Default: exp] Prefix for the experiment directory."/>
 
-    <arg name="resolution" default="0.025"
-         doc="(float)[Default: 0.025] Map resolution in [m]."/>
+    <arg name="resolution" default="0.05"
+         doc="(float)[Default: 0.05] Map resolution in [m]."/>
 
     <arg name="occ_threshold" default="0.25"
          doc="(float)[Default: 0.25] Threshold for determining whether a cell is occupied or free."/>
@@ -181,7 +181,7 @@
         <param name="xmax" value="6.0"/>  <!-- (float, default  100.0) -->
         <param name="ymax" value="6.0"/>  <!-- (float, default  100.0) -->
         <!-- Resolution of the map (in metres per occupancy grid block) (float, default 0.05) -->
-        <param name="delta" value="($arg resolution)"/>
+        <param name="delta" value="$(arg resolution)"/>
 
         <!-- Threshold for determining the occupancy value of each cell -->
         <param name="occ_thresh" value="$(arg occ_threshold)"/>
@@ -230,11 +230,11 @@
         <param name="ogain" value="3.0"/>
         <!-- Number of beams to skip in each scan. Take only every (n+1)th laser ray for computing a match
         (0 = take all rays) (int, default 0) -->
-        <param name="lskip" value="0"/>
+        <param name="lskip" value="2"/>
         <!-- Minimum score for considering the outcome of the scan matching good. Can avoid jumping pose estimates in
         large open spaces when using laser scanners with limited range (e.g. 5m). Scores go up to 600+, try 50 for example
         when experiencing jumping estimate issues. (float, default 0.0) -->
-        <param name="minimumScore" value="0.0"/>
+        <param name="minimumScore" value="20.0"/>
 
         <!-- ____________________________________________________________
              Update Parameters
@@ -326,7 +326,7 @@
     _________________________________________________________________________________ -->
 
     <node name="occ_map_saver" pkg="map_simulator" type="occ_map_saver" output="log" if="$(arg do_plots)">
-        <param name="file_prefix" value="map"/>
+        <param name="file_prefix" value="slam_map"/>
         <param name="save_dir" value="$(arg path_save_occ)"/>
     </node>
 
