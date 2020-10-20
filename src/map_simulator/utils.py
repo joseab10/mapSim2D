@@ -132,6 +132,7 @@ def world2map(point, map_origin, delta):
 
     int_point = point - map_origin
     int_point /= delta
+    int_point = np.round(int_point)
 
     return int_point.astype(np.int)
 
@@ -157,7 +158,7 @@ def map2world(int_point, map_origin, delta, rounded=False):
     if rounded:
         decimals = np.log10(delta)
         if decimals < 0:
-            decimals = int(np.ceil(-decimals) + 1)
+            decimals = int(np.ceil(-decimals) + 2)
             point = np.round(point, decimals)
 
     return point

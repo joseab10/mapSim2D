@@ -72,15 +72,16 @@ class GroundTruthMapping:
         try:
             self._tf_listener.waitForTransform(self._map_frame, msg.header.frame_id, msg.header.stamp,
                                                rospy.Duration(2))
-            laser_pose = self._tf_listener.lookupTransform(self._map_frame, msg.header.frame_id, msg.header.stamp)
+            laser_pose, laser_orientation = self._tf_listener.lookupTransform(self._map_frame, msg.header.frame_id,
+                                                                              msg.header.stamp)
 
         except (tf.LookupException, tf.ConnectivityException,
                 tf.ExtrapolationException, tf2_ros.TransformException) as e:
             rospy.logwarn("Couldn't find transform for scan {}. {}".format(msg.header.seq, e))
             return
 
-        lp = np.array([laser_pose[0][0], laser_pose[0][1]])  # Laser Pose
-        _, _, lp_th = tf.transformations.euler_from_quaternion(laser_pose[1])  # Laser Orientation
+        lp = np.array([laser_pose[0], laser_pose[1]])  # Laser Pose
+        _, _, lp_th = tf.transformations.euler_from_quaternion(laser_orientation)  # Laser Orientation
 
         self._min_range = msg.range_min
         self._max_range = msg.range_max
@@ -128,12 +129,10 @@ class GroundTruthMapping:
         # Get the cells crossed by the beams and mark those indexes as occ or free.
         while self._scan_buffer:
             scan = self._scan_buffer.popleft()
-            lp = scan[0]
+            lp, endpoints, max_range = scan
             ilp = world2map(lp, self._map_origin, self._map_resolution)
-
-            endpoints = scan[1]
-            max_range = scan[2]
             i_endpoints = world2map(endpoints, self._map_origin, self._map_resolution)
+
             for i, i_ep in enumerate(i_endpoints):
 
                 line_rows, line_cols = line(ilp[0], ilp[1], i_ep[0], i_ep[1])
@@ -159,7 +158,7 @@ class GroundTruthMapping:
 
             ix, iy = world2map(pos, self._map_origin, self._map_resolution)
             hits = self._map_hits[pos]
-            tmp_occ = hits / visits
+            tmp_occ = float(hits) / float(visits)
             if 0 <= tmp_occ < self._occ_threshold:
                 occ_map[ix, iy] = 0
             elif tmp_occ >= self._occ_threshold:
