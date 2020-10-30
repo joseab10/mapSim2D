@@ -1,8 +1,10 @@
 import numpy as np
+
+from closed_shape_2D import ClosedShape2D
 from line import Line
 
 
-class Polygon:
+class Polygon(ClosedShape2D):
     """
     Polygon Class comprised of a list of ordered vertices.
     A Polygon is considered a closed region, so the first and last vertices are connected by an edge.
@@ -13,8 +15,9 @@ class Polygon:
         """
         Constructor.
 
-        :param vertices: (list|ndarray) Ordered list of vertices comprising a closed polygon. Last edge connects the
-                                        first and last vertices automatically, so no need to duplicate either of them.
+        :param vertices: (list|ndarray) Ordered list of [x, y] vertices comprising a closed polygon.
+                                        Last edge connects the first and last vertices automatically,
+                                        so no need to duplicate either of them.
         :param compute_bounding_box: (bool) Determines whether to compute a bounding rectangular box for this polygon.
                                             Used only because bounding boxes are themselves polygons, and must not get
                                             their own bounding box, as then they would infinitely recurse.
@@ -22,6 +25,8 @@ class Polygon:
                                             while 1.0 is totally opaque. Used for line_intersect() to randomly determine
                                             if a line intersects it or not when opacity is set to a value other than 1.
         """
+
+        super(Polygon, self).__init__()
 
         self.vertices = None
 
@@ -70,9 +75,9 @@ class Polygon:
         self.max_x = np.max(x_s)
         self.max_y = np.max(y_s)
 
-        return self.bounding_box()
+        return self.get_bounding_box()
 
-    def bounding_box(self):
+    def get_bounding_box(self):
         """
         Gets the polygon's bounding box.
 
@@ -84,17 +89,37 @@ class Polygon:
                         [self.max_x, self.max_y],
                         [self.max_x, self.max_y]], compute_bounding_box=False)
 
-    def point_inside(self):
+    def get_perimeter(self):
         """
-        Check if a given point lies inside the close polygon.
+        Returns the perimeter of the polygon.
+
+        :return: (float) Perimeter of the polygon.
+        """
+
+        # TODO: Implement
+        raise NotImplemented
+
+    def get_area(self):
+        """
+        Returns the area of the polygon.
+
+        :return: (float) Area of the polygon.
+        """
+
+        # TODO: Implement
+        raise NotImplemented
+
+    def is_point_inside(self, point):
+        """
+        Check if a given point lies inside the closed polygon.
 
         :return: (bool) True if the point lies inside the polygon, False otherwise
         """
 
-        # TODO:
-        return bool(self.vertices)
+        # TODO: Implement
+        raise NotImplemented
 
-    def line_intersects(self, line):
+    def intersection_with_line(self, line):
         """
         Check if a given line segment intersects the polygon. Takes into account the polygon's opacity.
 
@@ -117,7 +142,7 @@ class Polygon:
             # Check if line intersects bounding box, if not, don't even bother in checking in detail.
             if self.boundingBox:
 
-                if not self.bounding_box().line_intersects(line):
+                if self.get_bounding_box().intersection_with_line(line) is None:
                     return None
 
         min_p = None
@@ -173,17 +198,17 @@ if __name__ == "__main__":
     square = Polygon(np.array([[1., 1.], [1., 2.], [2., 2.], [2., 1.]]))
 
     ray = Line(np.array([0., 0.]), np.array([3., 2.]))
-    intersection = square.line_intersects(ray)
+    intersection = square.intersection_with_line(ray)
     print("Square:", square, "intersects ray:", ray, "at", intersection)
 
     ray = Line(np.array([0., 0.]), np.array([1., 0]))
-    intersection = square.line_intersects(ray)
+    intersection = square.intersection_with_line(ray)
     print("Square:", square, "intersects ray:", ray, "at", intersection)
 
     ray = Line(np.array([0., 1.]), np.array([10., 1]))
-    intersection = square.line_intersects(ray)
+    intersection = square.intersection_with_line(ray)
     print("Square:", square, "intersects ray:", ray, "at", intersection)
 
     ray = Line(np.array([0., 0.]), np.array([10., 10.]))
-    intersection = square.line_intersects(ray)
+    intersection = square.intersection_with_line(ray)
     print("Square:", square, "intersects ray:", ray, "at", intersection)
