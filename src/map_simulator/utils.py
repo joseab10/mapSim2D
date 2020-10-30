@@ -179,3 +179,37 @@ def cell_centerpoint(point, map_origin, delta):
     cnt_point = map2world(int_point, map_origin, delta, rounded=True)
 
     return cnt_point
+
+
+def to_np(value):
+    """
+    Converts scalars and lists to numpy arrays if they aren't yet.
+
+    :param value: (number|list) Value to be converted to a numpy array.
+
+    :return: (np.ndarray) Numpy array of the input value.
+    """
+
+    if not isinstance(value, np.ndarray):
+        if not isinstance(value, list):
+            value = [value]
+        return np.array(value)
+
+    return value
+
+
+def normalize_angles(angles):
+    """
+    Normalizes angle(s) to the interval (-pi, pi]
+
+    :param angles: (np.ndarray) Angle(s) to be normalized.
+
+    :return: (np.ndarray) Angles normalized to (-pi, pi] interval
+    """
+
+    # Get the angles modulo 2pi. Angles are now in [0, 2pi] range
+    tmp_angles = angles % (2 * np.pi)
+    # Make angles greater than pi negative to be in (-pi, pi] range
+    tmp_angles[tmp_angles > np.pi] -= 2 * np.pi
+
+    return tmp_angles
