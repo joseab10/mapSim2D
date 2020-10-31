@@ -710,7 +710,9 @@ class MapSimulator2D:
             max_ray_endpt = self._real_sensor_pose.position + self._params['max_range'] * rotation_matrix
             ray = Line(self._real_sensor_pose.position, max_ray_endpt)
 
-            min_range = self._params['max_range']
+            # Add 1m to make sure that everyone knows that this was a max range measurement in case
+            # no intersection is found
+            min_range = self._params['max_range'] + 1
             min_endpt = max_ray_endpt
             hit = False
 
@@ -888,7 +890,6 @@ class MapSimulator2D:
         meas_msg.range_max = self._params['max_range']
 
         meas_msg.ranges = measurements[:, 1]
-        meas_msg.intensities = 4096 * (measurements[:, 1] / self._params['max_range'])
 
         self._bag.write(topic, meas_msg, self._current_time)
         self._bag.flush()
