@@ -8,10 +8,13 @@
   "odo_prefix": "odo",
 
   "scan_topic": "base_scan",
+  "localization_topic": "do_localization",
 
   "base_to_laser_tf": [[0.05, 0.0], [0]],
 
   "move_noise_type": "odom",
+
+  "deterministic": false,
 
   "pose_sigma": [[0.01, 0.0 , 0.0],
                  [0.0 , 0.01, 0.0],
@@ -21,17 +24,19 @@
 
   "max_range": 20.0,
 
-  "meas_per_move": 1,
+  "meas_per_move": -2,
 
   "measurement_sigma": [[0.005, 0.0],
                         [0.0, 0.0]],
 
-  "start_pose": [[0.5, 0.5], [0.0]],
+  "start_position": [0.5, 0.5],
+  "start_orientation": [0.0],
 
   "scan_time_interval" : 50.0,
   "move_time_interval" : 500.0,
   "initial_timestamp" : null,
 
   "render_move_pause": 0.15,
-  "render_sense_pause": 0.05
+  "render_sense_pause": 0.05,
+  "render_margin": 1.0
 }

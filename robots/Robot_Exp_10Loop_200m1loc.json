@@ -2,7 +2,8 @@
   "include": [
     "Common.json",
     "Map_10Loop.json",
-    "Moves_10Loop.json",
+    "Moves_10Loop_2l200m.json",
+    "Moves_10Loop_1l100m_LocOnly.json",
     "Sensor_180Ray_3_2pi.json"
   ]
 }

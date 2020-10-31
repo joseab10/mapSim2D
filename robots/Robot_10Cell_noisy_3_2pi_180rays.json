@@ -6,5 +6,5 @@
     "Sensor_180Ray_3_2pi.json"
   ],
 
-  "deterministic": false
+  "max_range": 2.0
 }

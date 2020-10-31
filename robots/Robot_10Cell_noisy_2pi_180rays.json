@@ -4,7 +4,5 @@
     "Map_10Cell.json",
     "Moves_10Cell.json",
     "Sensor_180Ray_2pi.json"
-  ],
-
-  "deterministic": false
+  ]
 }
