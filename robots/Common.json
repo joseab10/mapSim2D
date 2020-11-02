@@ -8,7 +8,6 @@
   "odo_prefix": "odo",
 
   "scan_topic": "base_scan",
-  "localization_topic": "do_localization",
 
   "base_to_laser_tf": [[0.05, 0.0], [0]],
 
@@ -24,7 +23,7 @@
 
   "max_range": 20.0,
 
-  "meas_per_move": -2,
+  "meas_per_move": 1,
 
   "measurement_sigma": [[0.005, 0.0],
                         [0.0, 0.0]],

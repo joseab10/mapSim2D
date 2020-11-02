@@ -2,7 +2,8 @@
   "include": [
     "Common.json",
     "Map_45deg.json",
-    "Moves_45deg.json",
+    "CMD_45deg.json",
+    "CMD_EOS.json",
     "Sensor_1Ray.json"
   ],
 

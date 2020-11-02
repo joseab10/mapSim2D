@@ -27,7 +27,7 @@ from map_simulator.map_obstacles import PolygonalObstacle
 from map_simulator.robot_commands import \
     MovePoseCommand, MoveInterpolationCommand, MoveLinearCommand, MoveRotationCommand, MoveCircularCommand, \
     ScanCommand, \
-    CommentCommand, SleepCommand, LocalizationMessageCommand
+    CommentCommand, SleepCommand, BoolMessageCommand
 from map_simulator.geometry.transform import rotate2d
 from map_simulator.utils import tf_frame_normalize, tf_frame_join
 
@@ -72,8 +72,7 @@ class MapSimulator2D:
 
             "base_to_laser_tf": {"def": [[0, 0], 0], "desc": "Base to Laser Transform"},
 
-            "scan_topic":         {"def": "base_scan"      , "desc": "ROS Topic for scan messages"},
-            "localization_topic": {"def": "do_localization", "desc": "ROS Topic for enabling Localization-only SLAM"},
+            "scan_topic": {"def": "base_scan"      , "desc": "ROS Topic for scan messages"},
 
             "deterministic": {"def": False,           "desc": "Deterministic process"},
 
@@ -113,22 +112,22 @@ class MapSimulator2D:
         # and insert an entry  with its pre-processing and runtime callbacks here:
         cmd_callbacks = {
             # Movement Commands
-            "pose":               {"class": MovePoseCommand           , "callback": self._run_cmd_moves  },
-            "odom":               {"class": MovePoseCommand           , "callback": self._run_cmd_moves  },
-            "interpolation":      {"class": MoveInterpolationCommand  , "callback": self._run_cmd_moves  },
-            "linear":             {"class": MoveLinearCommand         , "callback": self._run_cmd_moves  },
-            "rotation":           {"class": MoveRotationCommand       , "callback": self._run_cmd_moves  },
-            "circular":           {"class": MoveCircularCommand       , "callback": self._run_cmd_moves  },
+            "pose":               {"class": MovePoseCommand           , "callback": self._callback_cmd_moves  },
+            "odom":               {"class": MovePoseCommand           , "callback": self._callback_cmd_moves  },
+            "interpolation":      {"class": MoveInterpolationCommand  , "callback": self._callback_cmd_moves  },
+            "linear":             {"class": MoveLinearCommand         , "callback": self._callback_cmd_moves  },
+            "rotation":           {"class": MoveRotationCommand       , "callback": self._callback_cmd_moves  },
+            "circular":           {"class": MoveCircularCommand       , "callback": self._callback_cmd_moves  },
 
             # Measurement Commands
-            "scan":               {"class": ScanCommand               , "callback": self._run_cmd_scans  },
+            "scan":               {"class": ScanCommand               , "callback": self._callback_cmd_scans  },
 
             # Message Commands
-            "start_localization": {"class": LocalizationMessageCommand, "callback": self._run_cmd_loc_msg},
+            "bool_msg":           {"class": BoolMessageCommand        , "callback": self._callback_cmd_msg    },
 
             # Misc Commands
-            "sleep":              {"class": SleepCommand              , "callback": self._run_cmd_sleep  },
-            "comment":            {"class": CommentCommand            , "callback": self._run_cmd_comment}
+            "sleep":              {"class": SleepCommand              , "callback": self._callback_cmd_sleep  },
+            "comment":            {"class": CommentCommand            , "callback": self._callback_cmd_comment}
         }
 
         # Obstacle class dictionary
@@ -457,7 +456,7 @@ class MapSimulator2D:
             self._bag.close()
             rospy.loginfo("ROS-Bag saved and closed")
 
-    def _run_cmd_moves(self, cmd):
+    def _callback_cmd_moves(self, cmd):
         """
         Runtime execution callback of move commands.
         It performs measurements depending on the "meas_num" parameter. If meas_num is non-negative, then it will
@@ -489,7 +488,7 @@ class MapSimulator2D:
             self._move(pose)
             self._move_cnt += 1
 
-    def _run_cmd_scans(self, cmd):
+    def _callback_cmd_scans(self, cmd):
         """
         Runtime execution of scan command.
         It performs one or more scans of the environment, depending on the property scans of the command.
@@ -502,7 +501,7 @@ class MapSimulator2D:
         for _ in range(cmd.scans):
             self._scan()
 
-    def _run_cmd_sleep(self, cmd):
+    def _callback_cmd_sleep(self, cmd):
         """
         Runtime execution callback of sleep command.
         Increments the simulation clock by a given amount.
@@ -514,12 +513,12 @@ class MapSimulator2D:
 
         self._increment_time(cmd.ms)
 
-    def _run_cmd_loc_msg(self, cmd):
+    def _callback_cmd_msg(self, cmd):
         """
-        Runtime execution callback of a localization message command.
-        Sends a boolean message to start Localization-Only SLAM to gmapping.
+        Runtime execution callback of a message command.
+        Sends a boolean message.
 
-        :param cmd: (LocalizationMessageCommand) Localization-message command with enable and print properties.
+        :param cmd: (MessageCommand) Message command with topic, msg, desc and do_print properties.
 
         :return: None
         """
@@ -527,14 +526,14 @@ class MapSimulator2D:
         if self._bag is None:
             return
 
-        self._bag.write(self._params['localization_topic'], cmd.msg, self._current_time)
+        self._bag.write(cmd.topic, cmd.msg, self._current_time)
         self._bag.flush()
 
         if cmd.do_print:
-            rospy.loginfo(" {} Localization-Only SLAM.".format("Enabling" if cmd.en else "Disabling"))
+            rospy.loginfo("MSG: " + cmd.desc)
 
     @staticmethod
-    def _run_cmd_comment(cmd):
+    def _callback_cmd_comment(cmd):
         """
         Processes a comment type command.
 
@@ -544,7 +543,7 @@ class MapSimulator2D:
         """
 
         if cmd.do_print:
-            rospy.loginfo("# {}".format(cmd.msg))
+            rospy.loginfo("# " + cmd.msg)
 
     def _move(self, pose):
         """

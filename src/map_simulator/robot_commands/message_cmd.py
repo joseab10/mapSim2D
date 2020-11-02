@@ -1,13 +1,14 @@
-from std_msgs.msg import Bool as BoolMsg
+from abc import ABCMeta
 
 from misc_cmd import MiscCommand
 
 
-class LocalizationMessageCommand(MiscCommand):
+class MessageCommand(MiscCommand):
     """
     Class for sending a boolean message to the SLAM node to let it know to start the localization only phase, so as to
     evaluate the performance of the algorithm.
     """
+    __metaclass__ = ABCMeta
 
     def __init__(self, config, callback, last_pose):
         """
@@ -23,19 +24,9 @@ class LocalizationMessageCommand(MiscCommand):
         :param last_pose: (Pose) Last pose of the robot before this command. Unused.
         """
 
-        super(LocalizationMessageCommand, self).__init__(config, callback, last_pose)
+        super(MessageCommand, self).__init__(config, callback, last_pose)
 
-        if 'enable' in config:
-            self.en = bool(config['enable'])
-        else:
-            self.en = True
-
-        if 'print' in config:
-            self.do_print = bool(config['print'])
-        else:
-            self.do_print = True
-
-        msg = BoolMsg()
-        msg.data = self.en
-
-        self.msg = msg
+        self.topic = ""
+        self.do_print = False
+        self.desc = ""
+        self.msg = None

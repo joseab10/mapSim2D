@@ -1,7 +1,7 @@
 {
   "commands": [
     {"type": "sleep", "duration": 5.0},
-    {"type": "start_localization", "enable": true},
+    {"type": "bool_msg", "topic": "doLocOnly", "desc": "Start of Localization-Only SLAM." },
     {"type": "sleep", "duration": 5.0},
 
     {"type": "comment", "txt": "Localization-Only Loop (Offset 0.5m from center obstacle with round corners)"},
