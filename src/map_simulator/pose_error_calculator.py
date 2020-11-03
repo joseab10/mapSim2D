@@ -3,9 +3,11 @@ import rospy
 import tf
 import tf2_ros
 from tf import TransformerROS
-from tf.transformations import quaternion_multiply, quaternion_conjugate, decompose_matrix, quaternion_from_euler
+from tf.transformations import decompose_matrix, \
+    quaternion_from_euler, euler_from_quaternion
 
 # ROS Message Libraries
+from std_msgs.msg import Bool as BoolMessage
 from tf2_msgs.msg import TFMessage
 from std_msgs.msg import Float64
 
@@ -18,7 +20,6 @@ import os.path
 import datetime
 import time
 
-from map_simulator.geometry.transform import quaternion_axis_angle
 from map_simulator.utils import tf_frame_eq
 
 
@@ -88,10 +89,13 @@ class PoseErrorCalculator:
 
         # Subscribers / Publishers
         rospy.Subscriber("/tf", TFMessage, self._tf_callback)
+        rospy.Subscriber("/doLocOnly", BoolMessage, self._loc_only_callback)
         self._tf_listener = tf.TransformListener()
 
         if self._publish_error:
-            self._err_publisher = rospy.Publisher("/pose_err", Float64, latch=True, queue_size=1)
+            self._tra_err_pub = rospy.Publisher("tra_err", Float64, latch=True, queue_size=1)
+            self._rot_err_pub = rospy.Publisher("rot_err", Float64, latch=True, queue_size=1)
+            self._tot_err_pub = rospy.Publisher("tot_err", Float64, latch=True, queue_size=1)
 
         rospy.spin()
 
@@ -192,13 +196,9 @@ class PoseErrorCalculator:
             self._cum_trans_err += trans_error
 
             # Rotational Error
-            sl_mb_r_conj = quaternion_conjugate(sl_mb_r)
-            q_diff = quaternion_multiply(gt_mb_r, sl_mb_r_conj)
-            _, rot_error = quaternion_axis_angle(q_diff)
-            _, rot_error2 = quaternion_axis_angle(rl_bb_r)
-            # Normalize rotational error (-pi, pi)
-            if rot_error > np.pi:
-                rot_error -= 2 * np.pi
+            _, _, sl_theta = euler_from_quaternion(sl_mb_r)
+            _, _, gt_theta = euler_from_quaternion(gt_mb_r)
+            rot_error = np.arccos(np.cos(sl_theta) * np.cos(gt_theta)  + np.sin(sl_theta) * np.sin(gt_theta))
             rot_error = rot_error * rot_error
             self._cum_rot_err += rot_error
 
@@ -210,9 +210,17 @@ class PoseErrorCalculator:
                                  trans_error, rot_error, tot_error)
 
             if self._publish_error:
-                err_msg = Float64()
-                err_msg.data = self._cum_tot_err
-                self._err_publisher.publish(err_msg)
+                tra_err_msg = Float64()
+                rot_err_msg = Float64()
+                tot_err_msg = Float64()
+
+                tra_err_msg.data = trans_error
+                rot_err_msg.data = rot_error
+                tot_err_msg.data = tot_error
+
+                self._tra_err_pub.publish(tra_err_msg)
+                self._rot_err_pub.publish(rot_err_msg)
+                self._tot_err_pub.publish(tot_err_msg)
 
         # Update last pose and info
         if seq_chgd:
@@ -225,6 +233,20 @@ class PoseErrorCalculator:
             self._last_gt_pose = gt_pose
             self._last_sl_mo_pose = sl_mo_pose
             self._last_sl_ob_pose = sl_ob_pose
+
+    def _loc_only_callback(self, msg):
+        """
+        Function called whenever a boolean doLocOnly message is received.
+        It appends a line with a string row to the CSV file to know when
+        the localization-only phase started.
+
+        :param msg: (std_messages.Bool) doLocOnly Message.
+
+        :return: None
+        """
+        if msg.data:
+            with open(self._err_file, 'a') as f:
+                f.write("Start Localization-Only." + self._newline)
 
     def _append_row(self, seq, ts, gt_pose, odo_pose, slam_pose, rel_pose, trans_err, rot_err, tot_err):
         """
