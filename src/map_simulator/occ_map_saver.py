@@ -37,7 +37,7 @@ class OccMapSaver:
 
         self._save_dir = save_dir
 
-        rospy.Subscriber("/map", OccupancyGrid, self._save_map, queue_size=1)
+        rospy.Subscriber("map", OccupancyGrid, self._save_map, queue_size=1)
 
         rospy.spin()
 
