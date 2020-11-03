@@ -106,7 +106,7 @@ Visualization Manager:
           Draw Behind: false
           Enabled: true
           Name: Map
-          Topic: /map
+          Topic: /SLAM/map
           Unreliable: false
           Use Timestamp: false
           Value: true
@@ -135,7 +135,7 @@ Visualization Manager:
           Size (Pixels): 3
           Size (m): 0.009999999776482582
           Style: Flat Squares
-          Topic: /base_scan
+          Topic: /SLAM/base_scan
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
@@ -190,9 +190,9 @@ Visualization Manager:
           Enabled: true
           Invert Rainbow: false
           Max Color: 255; 255; 255
-          Max Intensity: 4096
+          Max Intensity: 1977.5123291015625
           Min Color: 0; 0; 0
-          Min Intensity: 0
+          Min Intensity: 102.40098571777344
           Name: GT_LaserScan
           Position Transformer: XYZ
           Queue Size: 1
@@ -236,7 +236,7 @@ Visualization Manager:
           Draw Behind: false
           Enabled: true
           Name: Map
-          Topic: /odo/map
+          Topic: /ODO/map
           Unreliable: false
           Use Timestamp: false
           Value: true
