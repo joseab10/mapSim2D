@@ -1,10 +1,7 @@
 # ROS Libraries
 import rospy
-import tf
-import tf2_ros
-from tf import TransformerROS
 from tf.transformations import decompose_matrix, \
-    quaternion_from_euler, euler_from_quaternion
+    quaternion_from_euler, quaternion_multiply
 
 # ROS Message Libraries
 from std_msgs.msg import Bool as BoolMessage
@@ -15,12 +12,14 @@ from std_msgs.msg import Float64
 import numpy as np
 
 # OS Libraries
+import sys
 import os
 import os.path
 import datetime
 import time
 
-from map_simulator.utils import tf_frame_eq
+from map_simulator.utils import tf_frames_eq
+from map_simulator.geometry.transform import tf_msg_to_matrix, quaternion_axis_angle
 
 
 class PoseErrorCalculator:
@@ -35,18 +34,27 @@ class PoseErrorCalculator:
 
         # Error Accumulators
         self._cum_trans_err = 0
-        self._cum_rot_err = 0
-        self._cum_tot_err = 0
+        self._cum_rot_err   = 0
+        self._cum_tot_err   = 0
 
-        # Buffers for last step's poses and info
-        ini_pose = ([0.0, 0.0, 0.0], [0.0, 0.0, 0., 0.0])
-        self._last_gt_pose = ini_pose
-        self._last_sl_mo_pose = ini_pose
-        self._last_sl_ob_pose = ini_pose
+        # Buffers for current and last step's transformation matrices
+        self._curr_gt_mb_pose = None
+        self._curr_sl_mo_pose = None
+        self._curr_sl_ob_pose = None
+        self._last_gt_mb_pose = None
+        self._last_sl_ob_pose = None
+        # relative rotation quaternion (starting as zero-rotation)
+        self._last_rot_err_q = quaternion_from_euler(0, 0, 0)
+        # and info
+        self._curr_seq = None
+        self._curr_ts  = None
+        self._curr_processed = False
+        self._last_seq = None
+        self._last_ts  = None
+        self._last_processed = False
 
-        self._last_pose_acq = False
-        self._last_seq = -1
-        self._last_ts = None
+        self._first_pose = True
+        self._loc_only_recvd = False
 
         # Weight factor for rotational error
         self._lambda = rospy.get_param("~lambda", 0.1)
@@ -56,8 +64,8 @@ class PoseErrorCalculator:
         self._log_error = rospy.get_param("log_err", True)
 
         if not (self._publish_error or self._log_error):
-            rospy.logerr("Not publising nor logging. Why call me then? Exiting.")
-            return
+            rospy.logerr("Neither publising nor logging. Why call me then? Exiting.")
+            rospy.signal_shutdown("Nothing to do. Shutting down. Check _pub_err and _log_err parameters.")
 
         # TF Frames
         self._map_frame = rospy.get_param("~map_frame", "map")
@@ -76,7 +84,12 @@ class PoseErrorCalculator:
         timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
         default_err_file = err_prefix + '_' + timestamp + '.csv'
         default_err_file = os.path.join(log_dir, default_err_file)
+        default_loc_err_file = err_prefix + '_loc_' + timestamp + '.csv'
+        default_loc_err_file = os.path.join(log_dir, default_loc_err_file)
         self._err_file = rospy.get_param("~err_file", default_err_file)
+        self._loc_err_file = rospy.get_param("~loc_err_file", default_loc_err_file)
+        self._current_err_file = self._err_file
+
         # CSV row and column delimiters
         self._newline = rospy.get_param("~newline", "\n")
         self._delim = rospy.get_param("~delim", ",")
@@ -90,7 +103,9 @@ class PoseErrorCalculator:
         # Subscribers / Publishers
         rospy.Subscriber("/tf", TFMessage, self._tf_callback)
         rospy.Subscriber("/doLocOnly", BoolMessage, self._loc_only_callback)
-        self._tf_listener = tf.TransformListener()
+        rospy.Subscriber("/endOfSim", BoolMessage, self._end_of_sim_callback)
+
+        rospy.on_shutdown(self._shutdown_callback)
 
         if self._publish_error:
             self._tra_err_pub = rospy.Publisher("tra_err", Float64, latch=True, queue_size=1)
@@ -98,6 +113,106 @@ class PoseErrorCalculator:
             self._tot_err_pub = rospy.Publisher("tot_err", Float64, latch=True, queue_size=1)
 
         rospy.spin()
+
+    def _process_last_pose(self, ignore_eq_seq=False):
+        """
+        Computes the relative pose between the Ground Truth and the SLAM corrected pose.
+        Computes the translation and rotational errors between the two and saves and publishes them.
+        If the pose has already been processed or there was no sequence change, it does nothing.
+
+        :param ignore_eq_seq: If True, it ignores the fact that last_seq and curr_seq might be equal and processes the
+                              last pose anyways.
+
+        :return: None
+        """
+
+        if not ignore_eq_seq and self._curr_seq == self._last_seq:
+            return
+
+        if self._last_processed:
+            return
+
+        # GT map->base Transform
+        gt_mb = self._last_gt_mb_pose
+        # ODO map->base Transform (= SLAM odo->base Transform)
+        od_mb = self._last_sl_ob_pose
+        # SLAM map->base Transform (= SLAM (map->odo) x (odo->base))
+        sl_mb = np.dot(self._curr_sl_mo_pose, self._last_sl_ob_pose)
+        # REL base->base Transform (relative pose between SLAM and GT bases
+        rl_bb = np.dot(sl_mb, np.linalg.inv(gt_mb))
+
+        _, _, rl_bb_r, rl_bb_t, _ = decompose_matrix(rl_bb)
+
+        # Translational Error as squared euclidean distance
+        trans_error = np.matmul(rl_bb_t, rl_bb_t)
+        self._cum_trans_err += trans_error
+
+        # Convert rotation to quaternion
+        rl_bb_q = quaternion_from_euler(rl_bb_r[0], rl_bb_r[1], rl_bb_r[2])
+
+        # Rotational Error as a single angle (rotation around single arbitrary axis)
+        _, rot_error = quaternion_axis_angle(rl_bb_q)
+
+        # Accumulate rotational errors by compounding the rotations
+        self._last_rot_err_q = quaternion_multiply(self._last_rot_err_q, rl_bb_q)
+        _, cum_rot_err = quaternion_axis_angle(self._last_rot_err_q)
+        self._cum_rot_err = cum_rot_err
+
+        # Compute total error as the weighted sum of translational and rotational errors.
+        tot_error = trans_error + self._lambda * rot_error
+        # Compute the cumulative total error as the weighted sum of cumulative translational and rotational errors.
+        # TODO: verify this makes mathematical sense:
+        self._cum_tot_err = self._cum_trans_err + self._lambda * self._cum_rot_err
+
+        # Append to file if configured to do so
+        if self._log_error:
+            self._append_row(self._last_seq, self._last_ts, gt_mb, od_mb, sl_mb, rl_bb,
+                             trans_error, rot_error, tot_error)
+
+        # Publish error messages if configured to do so
+        if self._publish_error:
+            tra_err_msg = Float64()
+            rot_err_msg = Float64()
+            tot_err_msg = Float64()
+
+            tra_err_msg.data = trans_error
+            rot_err_msg.data = rot_error
+            tot_err_msg.data = tot_error
+
+            self._tra_err_pub.publish(tra_err_msg)
+            self._rot_err_pub.publish(rot_err_msg)
+            self._tot_err_pub.publish(tot_err_msg)
+
+        # Set the pose to already processed to avoid duplicate entries, in case we end up here again for some reason
+        self._last_processed = True
+
+    def _push_pose(self, seq=None, ts=None, sl_ob_pose=None, gt_mb_pose=None, processed=None):
+        """
+        Push the current pose to the last pose and its info.
+        If all parameters are not none, then set those as the current pose. Otherwise, retain the current pose as well.
+
+        :param seq: (int)[Default: None] Latest Pose sequence.
+        :param ts: (rospy.Time)[Default: None] Timestamp of the latest Ground Truth Pose message.
+        :param sl_ob_pose: (np.ndarray)[Default: None] SLAM:odom->base transform matrix.
+        :param gt_mb_pose: (np.ndarray)[Default: None] GT:map->base transform matrix.
+        :param processed: (bool)[Default: None] Pose has been already processed if True.
+
+        :return: None
+        """
+
+        self._last_seq = self._curr_seq
+        self._last_ts  = self._curr_ts
+        self._last_processed = self._curr_processed
+        self._last_sl_ob_pose = self._curr_sl_ob_pose
+        self._last_gt_mb_pose = self._curr_gt_mb_pose
+
+        if seq is not None and ts is not None and processed is not None and \
+                sl_ob_pose is not None and gt_mb_pose is not None:
+            self._curr_seq = seq
+            self._curr_ts  = ts
+            self._curr_processed = processed
+            self._curr_sl_ob_pose = sl_ob_pose
+            self._curr_gt_mb_pose = gt_mb_pose
 
     def _tf_callback(self, msg):
         """
@@ -113,154 +228,138 @@ class PoseErrorCalculator:
         :return: None
         """
 
-        pose_acq = False
         seq_chgd = False
 
-        gt_pose = None
-        sl_mo_pose = None
-        sl_ob_pose = None
+        gt_mo_tf = None
+        gt_ob_tf = None
+
+        gt_mb_tf = None
+        sl_ob_tf = None
 
         seq = -1
-        time_stamp = None
+        ts = None
 
-        lookup_ts = rospy.Time(0)  # Latest
-        # lookup_ts = rospy.Time.now()
-        timeout = rospy.Duration.from_sec(1)
-
+        # Collect transform information
         for transform in msg.transforms:
-            seq = transform.header.seq
-            time_stamp = transform.header.stamp
-            pframe = transform.header.frame_id
-            cframe = transform.child_frame_id
+            seq     = transform.header.seq
+            ts      = transform.header.stamp
+            p_frame = transform.header.frame_id
+            c_frame = transform.child_frame_id
 
-            is_gt_pose = tf_frame_eq(pframe, self._map_frame) and tf_frame_eq(cframe, self._gt_odom_frame)
+            # If transform is SLAM:map->odom
+            if tf_frames_eq(p_frame, c_frame, self._map_frame, self._odom_frame):
+                seq_chgd = False
+                self._curr_sl_mo_pose = tf_msg_to_matrix(transform)
 
-            if is_gt_pose:
-                seq_chgd = self._last_seq != seq
+            # If transform is GT:map->odom
+            elif tf_frames_eq(p_frame, c_frame, self._map_frame, self._gt_odom_frame):
+                gt_mo_tf = tf_msg_to_matrix(transform)
 
-                try:
-                    self._tf_listener.waitForTransform(self._map_frame, self._gt_base_frame, lookup_ts, timeout)
-                    gt_pose = self._tf_listener.lookupTransform(self._map_frame, self._gt_base_frame, lookup_ts)
+            # If transform is GT:odom->base
+            elif tf_frames_eq(p_frame, c_frame, self._gt_odom_frame, self._gt_base_frame):
+                gt_ob_tf = tf_msg_to_matrix(transform)
 
-                    # Getting the map-odom and odom-base transforms independently because lookupTransform throws
-                    # exceptions for the first poses
-                    self._tf_listener.waitForTransform(self._map_frame, self._odom_frame, lookup_ts, timeout)
-                    sl_mo_pose = self._tf_listener.lookupTransform(self._map_frame, self._odom_frame, lookup_ts)
+            # If transform is SLAM:odom->base
+            elif tf_frames_eq(p_frame, c_frame, self._odom_frame, self._base_frame):
+                sl_ob_tf = tf_msg_to_matrix(transform)
 
-                    self._tf_listener.waitForTransform(self._odom_frame, self._base_frame, lookup_ts, timeout)
-                    sl_ob_pose = self._tf_listener.lookupTransform(self._odom_frame, self._base_frame, lookup_ts)
+            # If we got all we need, compute the GT:map->base transform and ignore the other transforms in the message
+            if gt_mo_tf is not None and gt_ob_tf is not None and sl_ob_tf is not None:
+                seq_chgd = self._curr_seq != seq
+                gt_mb_tf = np.dot(gt_mo_tf, gt_ob_tf)
+                break
 
-                except (tf.LookupException, tf.ConnectivityException,
-                        tf.ExtrapolationException, tf2_ros.TransformException) as e:
-                    rospy.loginfo("TF sequence {} exception: {}".format(seq, e))
+        # Compute error only if a new Ground Truth pose was published (seq_chgd)
+        # and we actually acquired the necessary transforms.
+        if seq_chgd and gt_mb_tf is not None and sl_ob_tf is not None and self._curr_sl_mo_pose is not None:
+            self._push_pose(seq, ts, sl_ob_tf, gt_mb_tf, False)
+            # Don't process first pose, until a new one comes in.
+            if self._first_pose:
+                self._first_pose = False
+            else:
+                self._process_last_pose()
 
-                else:
+            # If we received a doLocOnly message, process the current pose, reset accumulators and start a new file.
+            if self._loc_only_recvd:
+                self._proc_and_reset_for_loc()
 
-                    pose_acq = True
-                    break
+    def _proc_and_reset_for_loc(self):
+        """
+        Function called for processing the last mapping pose, resetting the error accumulators
+        and switching the logging to a new file.
 
-        if seq_chgd and self._last_pose_acq:
+        :return: None
+        """
+        if not self._loc_only_recvd:
+            return
 
-            # Extract translation and rotation transforms from last poses
-            gt_mb_t = np.array(self._last_gt_pose[0])
-            gt_mb_r = np.array(self._last_gt_pose[1])
-            sl_mo_t = np.array(self._last_sl_mo_pose[0])
-            sl_mo_r = np.array(self._last_sl_mo_pose[1])
-            sl_ob_t = np.array(self._last_sl_ob_pose[0])
-            sl_ob_r = np.array(self._last_sl_ob_pose[1])
-            od_pose = (sl_ob_t, sl_ob_r)
+        self._push_pose()
+        self._process_last_pose(ignore_eq_seq=True)
+        self._curr_processed = True
 
-            # Convert to Homogeneous Transformation Matrices
-            tf_ros = TransformerROS()
-            gt_mb = tf_ros.fromTranslationRotation(gt_mb_t, gt_mb_r)
-            sl_mo = tf_ros.fromTranslationRotation(sl_mo_t, sl_mo_r)
-            sl_ob = tf_ros.fromTranslationRotation(sl_ob_t, sl_ob_r)
+        # Reset cumulative errors
+        self._cum_trans_err = 0
+        self._cum_rot_err = 0
+        self._cum_trans_err = 0
+        self._last_rot_err_q = quaternion_from_euler(0, 0, 0)
 
-            # Multiply transforms from map-odom and odom-base to get map-base transform matrix
-            sl_mb = np.dot(sl_ob, sl_mo)
-            # Split into translation and rotation
-            _, _, sl_mb_r, sl_mb_t, _ = decompose_matrix(sl_mb)
-            # Convert rotation from Euler angles to quaternion and restructure the slam pose
-            sl_mb_r = quaternion_from_euler(sl_mb_r[0], sl_mb_r[1], sl_mb_r[2])
-            sl_pose = (sl_mb_t, sl_mb_r)
-            sl_mb = tf_ros.fromTranslationRotation(sl_mb_t, sl_mb_r)
+        self._current_err_file = self._loc_err_file
 
-            # Compute relative pose between Ground Truth Base and SLAM Base poses
-            rl_bb = np.dot(sl_mb, np.linalg.inv(gt_mb))
-            _, _, rl_bb_r, rl_bb_t, _ = decompose_matrix(rl_bb)
-            rl_bb_r = quaternion_from_euler(rl_bb_r[0], rl_bb_r[1], rl_bb_r[2])
-            rel_pose = (rl_bb_t, rl_bb_r)
+        self._init_log()
 
-            # Translational Error as squared euclidean distance
-            trans_error = np.matmul(rl_bb_t, rl_bb_t)
-            self._cum_trans_err += trans_error
-
-            # Rotational Error
-            _, _, sl_theta = euler_from_quaternion(sl_mb_r)
-            _, _, gt_theta = euler_from_quaternion(gt_mb_r)
-            rot_error = np.arccos(np.cos(sl_theta) * np.cos(gt_theta)  + np.sin(sl_theta) * np.sin(gt_theta))
-            rot_error = rot_error * rot_error
-            self._cum_rot_err += rot_error
-
-            tot_error = trans_error + self._lambda * rot_error
-            self._cum_tot_err += tot_error
-
-            if self._log_error:
-                self._append_row(self._last_seq, self._last_ts, self._last_gt_pose, od_pose, sl_pose, rel_pose,
-                                 trans_error, rot_error, tot_error)
-
-            if self._publish_error:
-                tra_err_msg = Float64()
-                rot_err_msg = Float64()
-                tot_err_msg = Float64()
-
-                tra_err_msg.data = trans_error
-                rot_err_msg.data = rot_error
-                tot_err_msg.data = tot_error
-
-                self._tra_err_pub.publish(tra_err_msg)
-                self._rot_err_pub.publish(rot_err_msg)
-                self._tot_err_pub.publish(tot_err_msg)
-
-        # Update last pose and info
-        if seq_chgd:
-            self._last_seq = seq
-
-        if pose_acq:
-            self._last_pose_acq = pose_acq
-            self._last_ts = time_stamp
-
-            self._last_gt_pose = gt_pose
-            self._last_sl_mo_pose = sl_mo_pose
-            self._last_sl_ob_pose = sl_ob_pose
+        self._loc_only_recvd = False
 
     def _loc_only_callback(self, msg):
         """
-        Function called whenever a boolean doLocOnly message is received.
-        It appends a line with a string row to the CSV file to know when
-        the localization-only phase started.
+        Sets up a flag so that the next time a GT pose is received, _proc_and_reset_for_loc is called.
 
         :param msg: (std_messages.Bool) doLocOnly Message.
 
         :return: None
         """
-        if msg.data:
-            with open(self._err_file, 'a') as f:
-                f.write("Start Localization-Only." + self._newline)
+        self._loc_only_recvd = msg.data
 
-    def _append_row(self, seq, ts, gt_pose, odo_pose, slam_pose, rel_pose, trans_err, rot_err, tot_err):
+    def _shutdown_callback(self):
+        """
+        Callback for when the node is starting to shut down.
+        It processes the poses still remaining in buffer before shutting down.
+
+        :return: None
+        """
+
+        rospy.sleep(1.0)  # Wait a bit to see if gmapping still outputs a corrected pose
+        rospy.loginfo("Saving last poses and shutting down.")
+        self._process_last_pose()  # Save info to file
+        self._push_pose()
+        self._process_last_pose(ignore_eq_seq=True)  # Save last pose to file
+
+    def _end_of_sim_callback(self, msg):
+        """
+        Callback executed whenever a EndOfSimulation is received to shut down the node, as no more GT data is expected.
+
+        :param msg: (std_messages.Bool) endOfSim Message.
+
+        :return: None
+        """
+
+        if msg.data:
+            rospy.loginfo("Received EndOfSimulation message. Shutting down node.")
+            rospy.signal_shutdown("Simulation finished. Nothing else to do.")  # Shutdown node
+            sys.exit(0)
+
+    def _append_row(self, seq, ts, gt_tf, odo_tf, slam_tf, rel_tf, trans_err, rot_err, tot_err):
         """
         Append a row to the CSV file with the poses and errors
 
-        :param seq: (int) Sequence number of the Ground Truth Pose message
-        :param ts: (rospy.Time) Timestamp of the Ground Truth Pose message
-        :param gt_pose: (tuple) Ground Truth Pose and orientation ([x, y, z], [x, y, z, w])
-        :param odo_pose: (tuple) Pure Odometry Pose and orientation ([x, y, z], [x, y, z, w])
-        :param slam_pose: (tuple) SLAM Pose and orientation ([x, y, z], [x, y, z, w])
-        :param rel_pose: (tuple) Relative Pose and orientation ([x, y, z], [x, y, z, w])
-        :param trans_err: (float) Step translational error
-        :param rot_err: (float) Step rotational error
-        :param tot_err: (float) Step total error
+        :param seq: (int) Sequence number of the Ground Truth Pose message.
+        :param ts: (rospy.Time) Timestamp of the Ground Truth Pose message.
+        :param gt_tf: (np.ndarray) GT:map->base transform matrix.
+        :param odo_tf: (np.ndarray) ODOM:map->base (= odom->base) transform matrix.
+        :param slam_tf: (np.ndarray) SLAM:map->base transform matrix.
+        :param rel_tf: (np.ndarray) Relative transform between GT:base->SLAM:Base transform matrix.
+        :param trans_err: (float) Step translational error.
+        :param rot_err: (float) Step rotational error.
+        :param tot_err: (float) Step total error.
 
         :return: None
         """
@@ -268,14 +367,18 @@ class PoseErrorCalculator:
         if not self._log_error:
             return
 
-        gt_p_x, gt_p_y, gt_p_z = gt_pose[0]
-        gt_r_x, gt_r_y, gt_r_z, gt_r_w = gt_pose[1]
-        od_p_x, od_p_y, od_p_z = odo_pose[0]
-        od_r_x, od_r_y, od_r_z, od_r_w = odo_pose[1]
-        sl_p_x, sl_p_y, sl_p_z = slam_pose[0]
-        sl_r_x, sl_r_y, sl_r_z, sl_r_w = slam_pose[1]
-        rl_p_x, rl_p_y, rl_p_z = rel_pose[0]
-        rl_r_x, rl_r_y, rl_r_z, rl_r_w = rel_pose[1]
+        _,  _,  gt_rot, gt_tra, _ = decompose_matrix(gt_tf)
+        gt_p_x, gt_p_y, gt_p_z = gt_tra
+        gt_r_x, gt_r_y, gt_r_z = gt_rot
+        _,  _,  od_rot, od_tra, _ = decompose_matrix(odo_tf)
+        od_p_x, od_p_y, od_p_z = od_tra
+        od_r_x, od_r_y, od_r_z = od_rot
+        _,  _,  sl_rot, sl_tra, _ = decompose_matrix(slam_tf)
+        sl_p_x, sl_p_y, sl_p_z = sl_tra
+        sl_r_x, sl_r_y, sl_r_z = sl_rot
+        _,  _,  rl_rot, rl_tra, _ = decompose_matrix(rel_tf)
+        rl_p_x, rl_p_y, rl_p_z = rl_tra
+        rl_r_x, rl_r_y, rl_r_z = rl_rot
 
         ts_time = time.localtime(ts.secs)
         ts_yy = ts_time.tm_year
@@ -289,10 +392,10 @@ class PoseErrorCalculator:
         row = [
             seq,
             ts_yy, ts_mm, ts_dd, ts_h, ts_m, ts_s, ts_ns,
-            gt_p_x, gt_p_y, gt_p_z, gt_r_x, gt_r_y, gt_r_z, gt_r_w,
-            od_p_x, od_p_y, od_p_z, od_r_x, od_r_y, od_r_z, od_r_w,
-            sl_p_x, sl_p_y, sl_p_z, sl_r_x, sl_r_y, sl_r_z, sl_r_w,
-            rl_p_x, rl_p_y, rl_p_z, rl_r_x, rl_r_y, rl_r_z, rl_r_w,
+            gt_p_x, gt_p_y, gt_p_z, gt_r_x, gt_r_y, gt_r_z,
+            od_p_x, od_p_y, od_p_z, od_r_x, od_r_y, od_r_z,
+            sl_p_x, sl_p_y, sl_p_z, sl_r_x, sl_r_y, sl_r_z,
+            rl_p_x, rl_p_y, rl_p_z, rl_r_x, rl_r_y, rl_r_z,
             trans_err, self._cum_trans_err,
             rot_err, self._cum_rot_err,
             tot_err, self._cum_tot_err
@@ -301,9 +404,9 @@ class PoseErrorCalculator:
         row_str = self._delim.join([str(x) for x in row])
         row_str += self._newline
 
-        rospy.loginfo("Adding pose with seq. {}".format(seq))
+        rospy.loginfo("Adding pose with seq. {} to file.".format(seq))
 
-        with open(self._err_file, 'a') as f:
+        with open(self._current_err_file, 'a') as f:
             f.write(row_str)
 
     def _init_log(self):
@@ -321,9 +424,9 @@ class PoseErrorCalculator:
         col_head1 = [
             "SEQ",
             "TIME STAMP", "", "", "", "", "", "",
-            "GT POSE", "", "", "", "", "", "",
-            "PURE ODOMETRY POSE", "", "", "", "", "", "",
-            "SLAM POSE", "", "", "", "", "", "",
+            "GT POSE", "", "", "", "", "",
+            "PURE ODOMETRY POSE", "", "", "", "", "",
+            "SLAM POSE", "", "", "", "", "",
             "RELATIVE POSE /GT/base_link->/SLAM/base_link", "", "", "", "", "", "",
             "ERROR", "", "", "", "", ""
         ]
@@ -331,10 +434,10 @@ class PoseErrorCalculator:
         col_head2 = [
             "",
             "", "", "", "", "", "", "",
-            "Pose", "", "", "Orientation", "", "", "",
-            "Pose", "", "", "Orientation", "", "", "",
-            "Pose", "", "", "Orientation", "", "", "",
-            "Pose", "", "", "Orientation", "", "", "",
+            "Pose", "", "", "Orientation", "", "",
+            "Pose", "", "", "Orientation", "", "",
+            "Pose", "", "", "Orientation", "", "",
+            "Pose", "", "", "Orientation", "", "",
             "Translational", "", "Angular", "",
             "Total (err_t + lambda * err_rot)[lambda = " + str(self._lambda) + "[m^2/rad^2]]", ""
         ]
@@ -342,10 +445,10 @@ class PoseErrorCalculator:
         col_head3 = [
             "",
             "Date", "", "", "Time", "", "", "",
-            "x", "y", "z", "x", "y", "z", "w",
-            "x", "y", "z", "x", "y", "z", "w",
-            "x", "y", "z", "x", "y", "z", "w",
-            "x", "y", "z", "x", "y", "z", "w",
+            "x", "y", "z", "Roll (x)", "Pitch (y)", "Yaw (z)",
+            "x", "y", "z", "Roll (x)", "Pitch (y)", "Yaw (z)",
+            "x", "y", "z", "Roll (x)", "Pitch (y)", "Yaw (z)",
+            "x", "y", "z", "Roll (x)", "Pitch (y)", "Yaw (z)",
             "Step", "Cumulative",
             "Step", "Cumulative",
             "Step", "Cumulative"
@@ -354,12 +457,12 @@ class PoseErrorCalculator:
         col_head4 = [
             "",
             "[Y]", "[M]", "[D]", "[h]", "[m]", "[s]", "[ns]",
-            "[m]", "[m]", "[m]", "", "", "", "",
-            "[m]", "[m]", "[m]", "", "", "", "",
-            "[m]", "[m]", "[m]", "", "", "", "",
-            "[m]", "[m]", "[m]", "", "", "", "",
-            "[m^2]", "[m^2]",
-            "[rad^2]", "[rad^2]",
+            "[m]", "[m]", "[m]", "[rad]", "[rad]", "[rad]",
+            "[m]", "[m]", "[m]", "[rad]", "[rad]", "[rad]",
+            "[m]", "[m]", "[m]", "[rad]", "[rad]", "[rad]",
+            "[m]", "[m]", "[m]", "[rad]", "[rad]", "[rad]",
+            "[m]", "[m]",
+            "[rad]", "[rad]",
             "[m^2]", "[m^2]",
         ]
 
@@ -368,5 +471,5 @@ class PoseErrorCalculator:
         csv_header = self._newline.join([self._delim.join(col_header) for col_header in col_headers])
         csv_header += self._newline
 
-        with open(self._err_file, 'w') as f:
+        with open(self._current_err_file, 'w') as f:
             f.write(csv_header)
