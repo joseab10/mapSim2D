@@ -1,3 +1,4 @@
+from tf.transformations import quaternion_matrix
 import numpy as np
 
 
@@ -28,3 +29,21 @@ def quaternion_axis_angle(q):
     w, v = q[3], q[0:2]
     theta = np.arccos(w) * 2
     return v, theta
+
+
+def tf_msg_to_matrix(msg):
+    """
+    Converts a transform message to a transformation matrix in homogeneous coordinates.
+
+    :param msg: (TFMessage) TF Message to be converted to a matrix.
+
+    :return: (np.ndarray) 4x4 Transformation Matrix in Homogeneous Coordinates.
+    """
+
+    translation = msg.transform.translation
+    rotation = msg.transform.rotation
+    p = np.array([translation.x, translation.y, translation.z])
+    q = np.array([rotation.x, rotation.y, rotation.z, rotation.w])
+    transform_matrix = quaternion_matrix(q)
+    transform_matrix[0:3, -1] = p
+    return transform_matrix
