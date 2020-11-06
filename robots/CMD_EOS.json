@@ -1,6 +1,7 @@
 {
   "commands": [
-    {"type": "sleep", "duration": 10.0, "desc": "10 Second pause before letting everyone know that the simulation is over."},
-    {"type": "bool_msg", "topic": "endOfSim", "desc": "End of Simulation." }
+    {"type": "sleep", "duration": 5.0, "desc": "10 Second pause before letting everyone know that the simulation is over."},
+    {"type": "bool_msg", "topic": "endOfSim", "desc": "End of Simulation." },
+    {"type": "sleep", "duration": 15.0, "desc": "10 Second pause before letting everyone know that the simulation is over."}
   ]
 }
