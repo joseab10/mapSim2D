@@ -41,7 +41,7 @@ class GroundTruthMapping:
 
         self._sub_map = rospy.Subscriber("/map", OccupancyGrid, self._map_callback)
         self._sub_scan = rospy.Subscriber("/GT/base_scan", LaserScan, self._sensor_callback)
-        self._sub_doLoc = rospy.Subscriber("doLocOnly", Bool, self._loc_only_callback)
+        self._sub_doLoc = rospy.Subscriber("/doLocOnly", Bool, self._loc_only_callback)
         self._pub_map = rospy.Publisher("/GT/map", OccupancyGrid, queue_size=1)
 
         self._map_resolution = None

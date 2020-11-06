@@ -163,7 +163,6 @@
             -->
             <!-- Subscription Remaps -->
             <remap from="/SLAM/scan" to="base_scan"/>
-            <remap from="/doLocOnly" to="doLocOnly"/>
             <!-- Publication  Remaps -->
             <remap from="/SLAM/map" to= "map"/>
             <remap from="/SLAM/fmp_alpha" to="fmp_alpha" />
