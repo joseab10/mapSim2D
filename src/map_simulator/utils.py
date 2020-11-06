@@ -119,6 +119,21 @@ def tf_frame_eq(tf1, tf2):
     return eq
 
 
+def tf_frames_eq(tf1_p, tf1_c, tf2_p, tf2_c):
+    """
+    Function for determining whether two TF chains are equal by ignoring slashes
+
+    :param tf1_p: (string) Parent frame of first TF chain
+    :param tf1_c: (string) Child frame of first TF chain
+    :param tf2_p: (string) Parent frame of second TF chain
+    :param tf2_c: (string) Child frame of second TF chain
+
+    :return: (bool) True if tf1 and tf2 represent the same transform
+    """
+
+    return tf_frame_eq(tf1_p, tf2_p) and tf_frame_eq(tf1_c, tf2_c)
+
+
 def world2map(point, map_origin, delta):
     """
     Convert from world units to discrete cell coordinates.
