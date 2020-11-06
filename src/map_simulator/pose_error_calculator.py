@@ -327,7 +327,6 @@ class PoseErrorCalculator:
         :return: None
         """
 
-        rospy.sleep(1.0)  # Wait a bit to see if gmapping still outputs a corrected pose
         rospy.loginfo("Saving last poses and shutting down.")
         self._process_last_pose()  # Save info to file
         self._push_pose()
@@ -345,7 +344,6 @@ class PoseErrorCalculator:
         if msg.data:
             rospy.loginfo("Received EndOfSimulation message. Shutting down node.")
             rospy.signal_shutdown("Simulation finished. Nothing else to do.")  # Shutdown node
-            sys.exit(0)
 
     def _append_row(self, seq, ts, gt_tf, odo_tf, slam_tf, rel_tf, trans_err, rot_err, tot_err):
         """
