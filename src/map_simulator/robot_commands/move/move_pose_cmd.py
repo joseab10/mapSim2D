@@ -14,6 +14,10 @@ class MovePoseCommand(MoveCommand):
         :param config: (dict) Configuration dictionary, with parameters:
                                   * "position": (list|np.ndarray) Target position [x, y] of the robot.
                                   * "orientation": (float|list|np.ndarray) Target orientation theta of the robot.
+                                  * "deterministic": (bool) (Optional)[Default: None] Overrides general deterministic
+                                                     configuration for this move. If None, then general config applies.
+                                  * "scans": (int) (Optional)[Default: None] Overrides general number of scans per move
+                                             configuration for this move. If None, then general config applies.
         :param callback: (callable) Function, lambda or other callable object to be executed
                                     when calling the command object.
         :param last_pose: (Pose) Last pose of the robot before this command. Unused.

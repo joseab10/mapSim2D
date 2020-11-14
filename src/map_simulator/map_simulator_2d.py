@@ -468,7 +468,11 @@ class MapSimulator2D:
         :return: None
         """
 
-        meas_num = int(self._params['meas_per_move'])
+        meas_num = cmd.get_meas_per_pose()
+        if meas_num is None:
+            meas_num = int(self._params['meas_per_move'])
+
+        det = cmd.get_deterministic()
 
         for pose in cmd.get_poses():
 
@@ -476,16 +480,16 @@ class MapSimulator2D:
             if meas_num >= 0:
                 # For each scan while stopped
                 for _ in range(meas_num):
-                    self._scan()
+                    self._scan(deterministic=det)
 
             # If one scan per several moves:
             else:
                 if self._move_cnt % abs(meas_num) == 0:
                     self._move_cnt = 0
-                    self._scan()
+                    self._scan(deterministic=det)
 
             # Move robot to new pose(s)
-            self._move(pose)
+            self._move(pose, deterministic=det)
             self._move_cnt += 1
 
     def _callback_cmd_scans(self, cmd):
@@ -498,8 +502,10 @@ class MapSimulator2D:
         :return:
         """
 
+        det = cmd.get_deterministic()
+
         for _ in range(cmd.scans):
-            self._scan()
+            self._scan(deterministic=det)
 
     def _callback_cmd_sleep(self, cmd):
         """
@@ -545,7 +551,7 @@ class MapSimulator2D:
         if cmd.do_print:
             rospy.loginfo("# " + cmd.msg)
 
-    def _move(self, pose):
+    def _move(self, pose, deterministic=None):
         """
         Take a real pose and add noise to it. Then recompute the laser sensor pose and increment the time.
         If the parameter "deterministic" is set to True, then both the real and noisy poses will be equal.
@@ -565,7 +571,10 @@ class MapSimulator2D:
         target_position = pose.position
         target_orientation = pose.orientation
 
-        if self._params['deterministic'] or self._tf_msg_seq == 0:
+        if deterministic is None:
+            deterministic = self._params['deterministic'] or self._tf_msg_seq == 0
+
+        if deterministic:
             new_noisy_position = target_position
             new_noisy_orientation = target_orientation
 
@@ -618,7 +627,7 @@ class MapSimulator2D:
             move_pause = float(self._params['render_move_pause'])
             self._render(pause=move_pause)
 
-    def _scan(self):
+    def _scan(self, deterministic=None):
         """
         Generate a scan using ray tracing, add noise if configured and display it.
 
@@ -629,7 +638,10 @@ class MapSimulator2D:
 
         meas, endpoints, hits = self._ray_trace()
 
-        if self._params['deterministic']:
+        if deterministic is None:
+            deterministic = self._params['deterministic']
+
+        if deterministic:
             noisy_meas = meas
             meas_noise = np.zeros(2)
         else:

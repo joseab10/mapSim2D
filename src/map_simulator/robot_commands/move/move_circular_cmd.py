@@ -27,6 +27,10 @@ class MoveCircularCommand(MoveCommand):
                                   * "dir": (string) Direction of turning. Can be:
                                       - "cw" : for clockwise rotation.
                                       - "ccw": for counter-clockwise rotation.
+                                  * "deterministic": (bool) (Optional)[Default: None] Overrides general deterministic
+                                                     configuration for this move. If None, then general config applies.
+                                  * "scans": (int) (Optional)[Default: None] Overrides general number of scans per move
+                                             configuration for this move. If None, then general config applies.
         :param callback: (callable) Function, lambda or other callable object to be executed
                                     when calling the command object.
         :param last_pose: (Pose) Last pose of the robot before this command.

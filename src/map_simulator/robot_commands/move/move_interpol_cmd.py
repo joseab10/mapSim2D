@@ -24,6 +24,10 @@ class MoveInterpolationCommand(MoveCommand):
                                   * "end_position": (list|np.ndarray) Ending position [x, y] of the robot.
                                   * "end_orientation": (float|list|np.ndarray) Ending orientation theta of the robot.
                                   * "steps": (int) Number of desired steps/poses for the movement
+                                  * "deterministic": (bool) (Optional)[Default: None] Overrides general deterministic
+                                                     configuration for this move. If None, then general config applies.
+                                  * "scans": (int) (Optional)[Default: None] Overrides general number of scans per move
+                                             configuration for this move. If None, then general config applies.
         :param callback: (callable) Function, lambda or other callable object to be executed
                                     when calling the command object.
         :param last_pose: (Pose) Last pose of the robot before this command.
