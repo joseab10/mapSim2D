@@ -24,10 +24,10 @@ from collections import deque
 # Project Libraries
 from map_simulator.geometry.primitives import Pose, Line
 from map_simulator.map_obstacles import PolygonalObstacle
-from map_simulator.robot_commands import \
-    MovePoseCommand, MoveInterpolationCommand, MoveLinearCommand, MoveRotationCommand, MoveCircularCommand, \
-    ScanCommand, \
-    CommentCommand, SleepCommand, BoolMessageCommand
+from map_simulator.robot_commands.move import MovePoseCommand, MoveInterpolationCommand, MoveLinearCommand, \
+    MoveRotationCommand, MoveCircularCommand
+from map_simulator.robot_commands.misc import ScanCommand, CommentCommand, SleepCommand
+from map_simulator.robot_commands.message import BoolMessageCommand
 from map_simulator.geometry.transform import rotate2d
 from map_simulator.utils import tf_frame_normalize, tf_frame_join
 

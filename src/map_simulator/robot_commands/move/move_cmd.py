@@ -1,12 +1,12 @@
 from abc import ABCMeta, abstractmethod
 
-from command import Command
+from map_simulator.robot_commands.command import Command
 
 
-class MiscCommand(Command):
+class MoveCommand(Command):
     """
-    Abstract class for creating simulated robot miscellaneous commands, such as scans, comments, messages, etc.
-    Defines the required interfaces for miscellaneous commands.
+    Abstract class for creating simulated robot movement commands.
+    Defines the required interfaces for movement commands.
     """
     __metaclass__ = ABCMeta
 
@@ -19,7 +19,17 @@ class MiscCommand(Command):
         :param config: (dict) Dictionary containing configuration of the command.
         :param callback: (callable) Function, lambda or other callable object to be executed
                                     when calling the command object.
-        :param last_pose: (Pose) Last pose of the robot before this command. Mostly unused for miscellaneous commands.
+        :param last_pose: (Pose) Last pose of the robot before this command. Used by some movement commands.
         """
 
-        super(MiscCommand, self).__init__(config, callback, last_pose)
+        super(MoveCommand, self).__init__(config, callback, last_pose)
+
+    @abstractmethod
+    def compute_poses(self):
+        """
+        Method signature for generating the movement's pose list and stores it internally.
+
+        :return: (None)
+        """
+
+        pass

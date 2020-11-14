@@ -1,6 +1,6 @@
 from abc import ABCMeta
 
-from misc_cmd import MiscCommand
+from map_simulator.robot_commands.misc.misc_cmd import MiscCommand
 
 
 class MessageCommand(MiscCommand):
