@@ -168,6 +168,7 @@ catkin_install_python(
         nodes/occ_map_saver
         nodes/odom_pose
         nodes/pose_error_calc
+        nodes/err_collector
 
         scripts/mapsim2d.py
 
@@ -205,13 +206,8 @@ install(
 )
 install(
     DIRECTORY
-    robots/
-    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/robots
-)
-install(
-    DIRECTORY
-    maps/
-    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/maps
+    scenarios/
+    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/scenarios
 )
 install(
     DIRECTORY

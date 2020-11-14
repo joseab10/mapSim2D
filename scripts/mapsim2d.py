@@ -22,7 +22,8 @@ if __name__ == '__main__':
 
     r = rospkg.RosPack()
     pck_share = r.get_path('map_simulator')
-    subdirs = [['robots'], ['maps']]
+    subdirs = [['scenarios'], ['scenarios', 'robots'], ['scenarios', 'maps'],
+               ['scenarios', 'sensors'], ['scenarios', 'commands'],]
     search_dirs = ['.']
     for s in subdirs:
         path = ""
