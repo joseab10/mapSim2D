@@ -12,7 +12,6 @@ from std_msgs.msg import Float64
 import numpy as np
 
 # OS Libraries
-import sys
 import os
 import os.path
 import datetime
@@ -130,6 +129,9 @@ class PoseErrorCalculator:
             return
 
         if self._last_processed:
+            return
+
+        if self._curr_sl_mo_pose is None or self._last_sl_ob_pose is None or self._last_gt_mb_pose is None:
             return
 
         # GT map->base Transform
@@ -332,7 +334,8 @@ class PoseErrorCalculator:
         self._push_pose()
         self._process_last_pose(ignore_eq_seq=True)  # Save last pose to file
 
-    def _end_of_sim_callback(self, msg):
+    @staticmethod
+    def _end_of_sim_callback(msg):
         """
         Callback executed whenever a EndOfSimulation is received to shut down the node, as no more GT data is expected.
 
