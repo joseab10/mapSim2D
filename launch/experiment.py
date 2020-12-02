@@ -67,7 +67,7 @@ if __name__ == "__main__":
         mm = get_arg(args_dict, 'mm', 'rfl', valid_vals=['rfl', 'dec'])
         pw = get_arg(args_dict, 'pw', 'cmh', valid_vals=['cmh', 'ml', 'fsm'])
 
-        path_save = path.join(path.expanduser("~"), "Desktop", "Experiments",
+        path_save = path.join(path.expanduser("~"), "Desktop", "Experiments", "IndividualExperiments",
                               "{}_{}_{}_{}".format(exp_pfx, ts, mm, pw))
 
     # Create path for log files

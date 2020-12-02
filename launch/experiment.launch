@@ -25,6 +25,8 @@
          doc="(bool)[Default: true] Run RVIZ to visualize the progress graphically in real time."/>
     <arg name="do_gsp_debug" default="true"
          doc="(bool)[Default: true] Output all of the GridSlam Processor data to a csv file." />
+    <arg name="do_coll_err" default="false"
+         doc="(bool)[Default: false] Collect error values from multiple runs in a single csv file." />
 
 
     <arg name="bag" default="10Loop"
@@ -59,7 +61,7 @@
 
     <arg name="alpha0" default="1.0"
          doc="(float)[Default: 1.0] Value for the alpha parameter of the prior distribution."/>
-    <arg name="beta0" default="$(eval 0.0 if mm_dcy else 1.0)"
+    <arg name="beta0" default="$(eval 0.000001 if mm_dcy else 1.0)"
          doc="(float)[Default: 1 for Ref, 1e-6 for Dec] Value for the beta parameter of the prior distribution."/>
 
     <arg name="exp_pfx" default="exp"
@@ -77,9 +79,12 @@
     <arg name="publishAvgPose" default="true"
         doc="(bool)[Default: true] Use weighted average pose over all particles instead of only the most likely." />
 
-    <arg name="pause" default="false"
+    <arg name="sim_pause" default="false"
          doc="(bool)[Default: false] Start the ROSbag in a paused state.
          Recommended to allow for the other nodes to initialize."/>
+
+    <arg name="sim_quiet" default="false"
+         doc="(bool)[Default: false] Run the ROSbag quietly." />
 
     <!-- ___________________________________________________________
         Path Arguments / Variables
@@ -101,9 +106,11 @@
              It should be set to ts:=`date +'%Y%M%D_%h%m%s'`"/>
     <arg name="pfx_mm" value="$(eval 'dec' if mm_dcy else 'rfl')"/>
     <arg name="pfx_pw" value="$(eval 'fsm' if pw_fsm else ('ml' if pw_ml else 'cmh'))"/>
+    <arg name="path_prefix" default="$(env HOME)/Desktop/Experiments/IndividualExperiments"
+         doc="Main directory where experiment sub-folders will be created" />
     <arg name="path_save"
-         default="$(env HOME)/Desktop/Experiments/$(arg exp_pfx)_$(arg ts)_$(arg pfx_mm)_$(arg pfx_pw)"
-         doc="(string)[Default: ~/Desktop/Experiments/${exp_pfx}_${ts}_${pfx_mm}_${pfx_pw}/]
+         default="$(arg path_prefix)/$(arg exp_pfx)_$(arg ts)_$(arg pfx_mm)_$(arg pfx_pw)"
+         doc="(string)[Default: ~/Desktop/Experiments/IndividualExperiments/${exp_pfx}_${ts}_${pfx_mm}_${pfx_pw}/]
               Path for saving the experiment results."/>
     <arg name="path_log" default="$(arg path_save)/log"
          doc="(string)[Default: ${path_save}/log] Path for storing the nodes' logs."/>
@@ -113,6 +120,10 @@
          doc="(string)[Default: ${path_save}/img/occ] Path for storing the result occupancy images." />
     <arg name="path_save_err" default="$(arg path_save)/err"
          doc="(string)[Default: ${path_save}/err] Path for storing the pose error file." />
+    <arg name="path_err_coll_path" default="$(arg path_save)/err"
+         doc="(string)[Default: ${path_save}/err] Path for storing the accumulated pose error file." />
+    <arg name="path_err_coll_pfx" default="err_coll"
+         doc="(string)[Default: err_coll] Prefix for the collected error file names." />
 
     <arg name="bag_file" default="$(arg path_data)/Simulations/Robot_Exp_10Loop_100m1loc.bag"
          if="$(eval bag.lower() == '10loop')"
@@ -175,6 +186,7 @@
             =========================================================================================================
             -->
             <param name="outputLog" value="$(arg path_log)/gsp_debug_$(arg ts)_$(arg pfx_mm)_$(arg pfx_pw).csv" if="$(arg do_gsp_debug)"/>
+            <param name="redirectOutputPath" value="$(arg path_log)/gsp_debug_$(arg ts)_$(arg pfx_mm)_$(arg pfx_pw)_err.txt" />
             <!-- ___________________________________________________________
                 TF Frames
             ____________________________________________________________ -->
@@ -204,9 +216,9 @@
             ____________________________________________________________ -->
             <!-- The maximum range of the sensor. If regions with no obstacles within the range of the sensor should appear
                  as free space in the map, set maxUrange < maximum range of the real sensor <= maxRange. (float) -->
-            <param name="maxRange" value="90.0"/>
+            <param name="maxRange" value="30.0"/>
             <!-- The maximum usable range of the laser. A beam is cropped to this value. (float, default 80.0) -->
-            <param name="maxUrange" value="80.0"/>
+            <param name="maxUrange" value="20.0"/>
 
             <!-- ____________________________________________________________
                  Odometry Model Parameters
@@ -243,7 +255,7 @@
             <param name="ogain" value="3.0"/>
             <!-- Number of beams to skip in each scan. Take only every (n+1)th laser ray for computing a match
             (0 = take all rays) (int, default 0) -->
-            <param name="lskip" value="2"/>
+            <param name="lskip" value="0"/>
             <!-- Minimum score for considering the outcome of the scan matching good. Can avoid jumping pose estimates in
             large open spaces when using laser scanners with limited range (e.g. 5m). Scores go up to 600+, try 50 for example
             when experiencing jumping estimate issues. (float, default 0.0) -->
@@ -299,11 +311,13 @@
             <param name="partWeighting" value="ForwardSensorModel" if="$(arg pw_fsm)"/>
             <param name="partWeighting" value="MeasurementLikelihood" if="$(arg pw_ml)"/>
 
+            <param name="doImprovedPose" value="$(arg doPoseImprove)" />
 
+            <param name="autoShutdown" value="true" />
             <param name="publishFullPosterior" value="true" />
 
-            <param name="alpha0" value="$(arg alpha0)"/>
-            <param name="beta0" value="$(arg beta0)"/>
+            <param name="alpha0" value="$(arg alpha0)" type="double"/>
+            <param name="beta0" value="$(arg beta0)" type="double"/>
 
         </node>
 
@@ -420,7 +434,11 @@
             <remap from="/map" to="/SLAM/map" />
             <!-- Publication  Remaps -->
 
-            <!-- Parameters -->
+            <!--
+            =========================================================================================================
+                Parameters
+            =========================================================================================================
+            -->
             <param name="occ_threshold" value="$(arg occ_threshold)"/>
         </node>
 
@@ -476,10 +494,15 @@
         <param name="err_prefix" value="pose_error"/>
     </node>
 
-    <node name="rviz" pkg="rviz" type="rviz" respawn="true"
+    <node name="err_coll" pkg="map_simulator" type="err_collector" output="log" if="$(arg do_coll_err)">
+        <param name="file_path" value="$(arg path_err_coll_path)"/>
+        <param name="file_prefix" value="$(arg path_err_coll_pfx)"/>
+    </node>
+
+    <node name="rviz" pkg="rviz" type="rviz"
           args="-d $(arg cfg_rviz_file)" if="$(arg do_rviz)"/>
 
-    <node name="sim" pkg="rosbag" type="play" output="screen" args="$(eval '--clock ' + bag_file + (' --pause' if arg('pause') else '') )"> <!-- unless="$(arg pause)">-->
+    <node name="sim" pkg="rosbag" type="play" output="screen" args="$(eval '--clock ' + bag_file + (' --pause' if arg('sim_pause') else '') + (' --quiet' if arg('sim_quiet') and not arg('sim_pause') else '') )">
         <!--
         =========================================================================================================
             Topic Remaps
@@ -489,6 +512,7 @@
         <!-- Publication  Remaps -->
         <remap from="base_scan" to="/SLAM/base_scan" />
         <remap from="odo/base_scan" to="/ODO/base_scan" />
+
     </node>
 
 </launch>
