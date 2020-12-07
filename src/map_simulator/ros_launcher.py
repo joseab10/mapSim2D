@@ -57,8 +57,8 @@ class ROSLauncher(object):
                 self._host = host
                 host_changed = True
             else:
-                raise TypeError("Invalid type for a protocol ({}: {}). Only str supported.".format(
-                    type(protocol), protocol))
+                raise TypeError("Invalid type for a hostname ({}: {}). Only str supported.".format(
+                    type(host), host))
 
         if port is not None:
             if isinstance(port, int):
@@ -79,6 +79,7 @@ class ROSLauncher(object):
 
         if host_changed:
             os.environ["ROS_MASTER_URI"] = "{}://{}:{}".format(self._protocol, self._host, self._port)
+            os.environ["ROS_HOSTNAME"] = self._host
 
         self._monitored_nodes = None
         if monitored_nodes is not None:
