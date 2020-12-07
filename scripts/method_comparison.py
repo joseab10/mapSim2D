@@ -142,7 +142,9 @@ if __name__ == "__main__":
     multiproc = True
     if multiproc:
         pool = multiprocessing.Pool(processes=num_procs)
+        print("Running experiments in a pool of {} processes.".format(num_procs))
         procs = []
+
     # Main experiments
     for exp_args in experiment_arg_list:
         if not multiproc:
