@@ -43,42 +43,45 @@ if __name__ == "__main__":
     path_file_options = [sorted(list(set(c))) for c in path_file_options]
 
     move_options = sorted(map(int, [o[:o.find('mv')] for o in path_file_options[0]]))
+    #move_options.remove(20)
 
-    rem_options = [path_file_options[2]] + path_file_options[4:]
-    rem_options = itertools.product(*rem_options)
+    #rem_options = [path_file_options[2]] + path_file_options[4:]
+    rem_options = path_file_options[3:]
+    rem_combinations = itertools.product(*rem_options)
+
+    curve_options = [path_file_options[1], path_file_options[2]]
 
     file_headers = ["Moves"] + map(str, move_options)
     file_cols = [file_headers]
 
     plt.ioff()
 
-    for o1 in rem_options:
+    for o1 in rem_combinations:
 
-        fig_lbl = "{}_{}_{}".format(o1[0], o1[1], o1[2])
+        fig_lbl = "_".join(o1)
 
         curves = []
+        curve_combinations = itertools.product(*curve_options)
 
-        curve_options = [path_file_options[1], path_file_options[3]]
-        curve_options = itertools.product(*curve_options)
+        for o2 in curve_combinations:
 
-        for o2 in curve_options:
-
-            col_lbl = "{}_{}_{}_{}_{}".format(o2[0], o1[0], o2[1], o1[1], o1[2])
+            col_lbl = "{}_{}_{}_{}_{}".format(o2[0], o2[1], o1[0], o1[1], o1[2])
 
             file_means = [col_lbl + "_mean"]
-            file_vars  = [col_lbl + "_var"]
+            file_sdevs = [col_lbl + "_var"]
             file_sems  = [col_lbl + "_sem"]
             file_runs  = [col_lbl + "_runs"]
 
-            curve_lbl = "{}_{}".format(o2[0], o2[1])
+            curve_lbl = "_".join(o2)
+            #curve_lbl = str(o2)
 
             means = []
-            varis = []
+            sdevs = []
             sems = []
             runs = []
 
             for m in move_options:
-                file_name = "{:03d}mv_{}_{}_{}_{}_{}.{}".format(m, o2[0], o1[0], o2[1], o1[1], o1[2], args.extension)
+                file_name = "{:03d}mv_{}.{}".format(m, col_lbl, args.extension)
 
                 file_path = path.join(data_path, file_name)
 
@@ -91,27 +94,29 @@ if __name__ == "__main__":
                         no_experiments += 1
 
                 means.append(np.mean(err))
-                varis.append(np.var(err))
+                sdevs.append(np.std(err))
                 sems.append(sem(err))
                 runs.append(no_experiments)
 
             file_means += means
-            file_vars += varis
+            file_sdevs += sdevs
             file_sems += sems
             file_runs += runs
 
             file_cols.append(map(str, file_means))
-            file_cols.append(map(str, file_vars))
+            file_cols.append(map(str, file_sdevs))
             file_cols.append(map(str, file_sems))
             file_cols.append(map(str, file_runs))
 
-            curves.append((curve_lbl, means, sems))
+            curves.append((curve_lbl, means, sdevs))
 
         print("Plotting figure: " + fig_lbl)
         plt.figure()
         for curve in curves:
             plt.errorbar(move_options, curve[1], curve[2], label=curve[0])
         plt.legend()
+        plt.xlabel("No. of mapping scans.")
+        plt.ylabel("Error (mean +- stddev)")
         plt.title(fig_lbl)
         plt.savefig(path.join(out_path, fig_lbl + "_errbar.svg"))
         plt.close()
@@ -119,45 +124,6 @@ if __name__ == "__main__":
     data_file_path = path.join(out_path, "errbar_data.dat")
     lines = zip(*file_cols)
 
-
     with open(data_file_path, "w") as f:
         for line in lines:
             f.write(FS.join(line) + LS)
-
-
-
-
-
-
-
-
-
-    # curves = [
-    #     {"lbl": "ref", "file_sfx": "ref_cmh_"},
-    #     {"lbl": "ref_FMP_ML", "file_sfx": "ref_ml_"}
-    # ]
-    # tests = ["map", "loc"]
-    # err = ["tra", "rot", "tot"]
-    #
-    # np.array()
-    # moves = ["{:03d}mv".format(m) for m in moves]
-    #
-    # for file in files:
-    #
-    #     file_path = path.join(data_path, file)
-    #
-    #     for err_type in err_types:
-    #
-    #         fig_name = file + "_" + err_type
-    #         print("Plotting figure: " + fig_name)
-    #         plt.figure()
-    #
-    #         for test_env in test_envs:
-    #
-    #             err_file_path = file_path + '_' + test_env + '_' + err_type + '.' + extension
-    #             err = []
-    #             with open(err_file_path, 'r') as f:
-    #                 for line in f:
-    #                     err.append(float(line.split(FS)[-1]))
-    #
-    #             plt.hist(err, label=test_env)
