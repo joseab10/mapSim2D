@@ -73,6 +73,9 @@
     <arg name="occ_threshold" default="0.25"
          doc="(float)[Default: 0.25] Threshold for determining whether a cell is occupied or free."/>
 
+    <arg name="ocuw" default="0.0"
+         doc="(float)[Default: 0.0] Weight of a Uniform Distribution to be added to the measurement likelihoods to avoid overconfidence" />
+
     <arg name="doPoseImprove" default="true"
          doc="(bool)[Default: true] Run scan matching for pose improvement if true."/>
 
@@ -311,6 +314,7 @@
             <param name="partWeighting" value="ForwardSensorModel" if="$(arg pw_fsm)"/>
             <param name="partWeighting" value="MeasurementLikelihood" if="$(arg pw_ml)"/>
 
+            <param name="overconfidenceUniformWeight" value="$(arg ocuw)" />
             <param name="doImprovedPose" value="$(arg doPoseImprove)" />
 
             <param name="autoShutdown" value="true" />
