@@ -69,7 +69,8 @@ class ROSLauncher(object):
                     raise ValueError("Invalid Port number ({}).".format(port))
             elif isinstance(port, str):
                 if port.lower() == "auto":
-                    port = random.randint(11311, 65535)
+                    random.seed()
+                    port = random.randint(1024, 65535)
                     self._port = next_free_port(host=self._host, port=port)
                     host_changed = True
                 else:
