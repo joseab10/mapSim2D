@@ -63,7 +63,7 @@ class PoseErrorCalculator:
         self._log_error = rospy.get_param("log_err", True)
 
         if not (self._publish_error or self._log_error):
-            rospy.logerr("Neither publising nor logging. Why call me then? Exiting.")
+            rospy.logerr("Neither publishing nor logging. Why call me then? Exiting.")
             rospy.signal_shutdown("Nothing to do. Shutting down. Check _pub_err and _log_err parameters.")
 
         # TF Frames
@@ -102,7 +102,6 @@ class PoseErrorCalculator:
         # Subscribers / Publishers
         rospy.Subscriber("/tf", TFMessage, self._tf_callback)
         rospy.Subscriber("/doLocOnly", BoolMessage, self._loc_only_callback)
-        rospy.Subscriber("/endOfSim", BoolMessage, self._end_of_sim_callback)
 
         rospy.on_shutdown(self._shutdown_callback)
 
@@ -333,20 +332,6 @@ class PoseErrorCalculator:
         self._process_last_pose()  # Save info to file
         self._push_pose()
         self._process_last_pose(ignore_eq_seq=True)  # Save last pose to file
-
-    @staticmethod
-    def _end_of_sim_callback(msg):
-        """
-        Callback executed whenever a EndOfSimulation is received to shut down the node, as no more GT data is expected.
-
-        :param msg: (std_messages.Bool) endOfSim Message.
-
-        :return: None
-        """
-
-        if msg.data:
-            rospy.loginfo("Received EndOfSimulation message. Shutting down node.")
-            rospy.signal_shutdown("Simulation finished. Nothing else to do.")  # Shutdown node
 
     def _append_row(self, seq, ts, gt_tf, odo_tf, slam_tf, rel_tf, trans_err, rot_err, tot_err):
         """

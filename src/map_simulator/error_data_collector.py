@@ -41,18 +41,16 @@ class ErrorDataCollector(object):
             "tot": [],
         }
 
-        rospy.Subscriber("endOfSim", Bool, self._eos_callback)
         rospy.Subscriber("doLocOnly", Bool, self._loc_callback)
         rospy.Subscriber("tra_err", Float64, self._err_callback, callback_args="tra")
         rospy.Subscriber("rot_err", Float64, self._err_callback, callback_args="rot")
         rospy.Subscriber("tot_err", Float64, self._err_callback, callback_args="tot")
+        rospy.on_shutdown(self._shutdown_callback)
 
         rospy.spin()
 
-    def _eos_callback(self, msg):
-        if msg.data:
-            self._append_errors_to_file()
-            self.stop()
+    def _shutdown_callback(self):
+        self._append_errors_to_file()
 
     def _loc_callback(self, msg):
         if msg.data:
