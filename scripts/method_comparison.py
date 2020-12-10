@@ -165,3 +165,6 @@ if __name__ == "__main__":
         for i, proc in enumerate(procs):
             print("\n\n\nProcess {}".format(i))
             print(proc.get())
+        
+        pool.close()
+        pool.join()

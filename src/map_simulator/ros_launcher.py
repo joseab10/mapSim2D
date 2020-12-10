@@ -1,4 +1,5 @@
 import roslaunch
+import rosnode
 
 import random
 import re
@@ -119,6 +120,7 @@ class ROSLauncher(object):
         """
 
         if self._launch_obj is not None:
+            rosnode.rosnode_cleanup()
             self._launch_obj.shutdown()
 
     def _monitored_nodes_are_dead(self):
