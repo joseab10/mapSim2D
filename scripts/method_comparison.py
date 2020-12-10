@@ -5,6 +5,7 @@ import rospkg
 import argparse
 
 from os import path
+from time import sleep
 from datetime import datetime
 
 import itertools
@@ -18,7 +19,7 @@ from map_simulator.ros_launcher import ROSLauncher
 def run_exp_n_times(package, launch_file_path, iterations=1, launch_args_dict=None, log_path=None,
                     port=None, monitored_nodes=None):
 
-    for i in range(iterations):
+    for _ in range(iterations):
         # Run Launch file
         launch_args_dict["ts"] = datetime.now().strftime('%y%m%d_%H%M%S')
 
@@ -26,10 +27,27 @@ def run_exp_n_times(package, launch_file_path, iterations=1, launch_args_dict=No
                                monitored_nodes=monitored_nodes)
         launcher.start(launch_args_dict)
         launcher.spin()
+        sleep(1)
+
+
+def list_parse(string, parse_type):
+    return list(map(parse_type, string.strip().split(',')))
 
 
 def int_list(string):
-    return list(map(int, string.strip().split(',')))
+    return list_parse(string, int)
+
+
+def str_list(string):
+    return list_parse(string, str)
+
+
+def bool_list(string):
+    return list_parse(string, bool)
+
+
+def float_list(string):
+    return list_parse(string, float)
 
 
 if __name__ == "__main__":
@@ -51,8 +69,16 @@ if __name__ == "__main__":
     parser.add_argument('-m', '--moves', action='store', type=int_list,
                         default="20,30,40,50,60,70,80,90,100,120,140,160,180,200,240,270,300",
                         help='Comma-separated list of number of movements to run the tests with.')
+    parser.add_argument('-mm', '--map_models', action='store', type=str_list, default="ref,dec",
+                        help='Comma-separated list of map model types.')
+    parser.add_argument('-pw', '--particle_weights', action='store', type=str_list, default="cmh,ml",
+                        help='Comma-separated list of particle weighting methods.')
+    parser.add_argument('-pi', '--pose_improve', action='store', type=bool_list, default="False",
+                        help='Comma-separated list of pose improvement options.')
     parser.add_argument('-f', '--launch_file', action='store', type=str, default=def_launch_file,
                         help='Launch file to execute.')
+    parser.add_argument('-mp', '--multi_proc', action='store_true', type=bool, default=True,
+                        help='Run multiple processes concurrently if true.')
     parser.add_argument('-w', '--num_workers', action='store', type=int, default=-1,
                         help='Number of workers/processes to run in parallel. (-1 to start one per core.')
     parser.add_argument('-p', '--path', action='store', type=str, default=def_file_path,
@@ -60,10 +86,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    iterations = args.iterations
+    it = args.iterations
 
     run_path = path.join(args.path, "run")
-    log_path = path.join(args.path, "log")
+    logging_path = path.join(args.path, "log")
     err_path = path.join(args.path, "err")
     launch_file = args.launch_file
 
@@ -87,13 +113,10 @@ if __name__ == "__main__":
     # Variable Launch Arguments (Different for each experiment)
     # All permutations of these settings will be executed, so be wary of that!
     var_args = OrderedDict([
-        ("bag_file", [20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 240, 270, 300]),
-        #("bag_file", [20, 40, 60, 80, 100]),
         ("bag_file", args.moves),
-        ("mm", ["ref", "dec"]),
-        ("pw", ["cmh", "ml"]),
-        #("doPoseImprove", [True, False])
-        ("doPoseImprove", [False])
+        ("mm", args.map_models),
+        ("pw", args.particle_weights),
+        ("doPoseImprove", args.pose_improve)
     ])
 
     # Functions for transforming an argument into its final value and label
@@ -130,9 +153,9 @@ if __name__ == "__main__":
         file_prefix = file_prefix[:-1]
         experiment_args["path_err_coll_pfx"] = file_prefix
 
-        launch_args_dict = stat_args.copy()
-        launch_args_dict.update(experiment_args)
-        experiment_arg_list.append(launch_args_dict)
+        tmp_launch_args_dict = stat_args.copy()
+        tmp_launch_args_dict.update(experiment_args)
+        experiment_arg_list.append(tmp_launch_args_dict)
 
     # Multiprocess pool settings
     if args.num_workers < 1:
@@ -140,31 +163,34 @@ if __name__ == "__main__":
     else:
         num_procs = args.num_workers
 
-    multiproc = True
+    multiproc = args.multi_proc
+    procs = []
+    pool = None
+
     if multiproc:
         pool = multiprocessing.Pool(processes=num_procs)
         print("Running experiments in a pool of {} processes.".format(num_procs))
-        procs = []
 
     # Main experiments
     for exp_args in experiment_arg_list:
         if not multiproc:
-            run_exp_n_times(launchfile_package, launch_file, iterations=iterations, launch_args_dict=exp_args,
-                            log_path=log_path, monitored_nodes={"any": ["sim", "SLAM/slam"]}, port="auto")
+            run_exp_n_times(launchfile_package, launch_file, iterations=it, launch_args_dict=exp_args,
+                            log_path=logging_path, monitored_nodes={"any": ["sim", "SLAM/slam"]}, port="auto")
         else:
             proc = pool.apply_async(run_exp_n_times, args=(launchfile_package, launch_file, ),
-                                kwds={"iterations": iterations,
-                                      "launch_args_dict": exp_args,
-                                      "log_path": log_path,
-                                      "monitored_nodes": {"all": ["sim", "SLAM/slam"]},
-                                      "port": "auto"}
-                                )
+                                    kwds={"iterations": it,
+                                          "launch_args_dict": exp_args,
+                                          "log_path": logging_path,
+                                          "monitored_nodes": {"all": ["sim", "SLAM/slam"]},
+                                          "port": "auto"}
+                                    )
+            sleep(1.0)
             procs.append(proc)
 
     if multiproc:
         for i, proc in enumerate(procs):
             print("\n\n\nProcess {}".format(i))
             print(proc.get())
-        
+
         pool.close()
         pool.join()
