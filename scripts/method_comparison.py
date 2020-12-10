@@ -77,7 +77,7 @@ if __name__ == "__main__":
                         help='Comma-separated list of pose improvement options.')
     parser.add_argument('-f', '--launch_file', action='store', type=str, default=def_launch_file,
                         help='Launch file to execute.')
-    parser.add_argument('-mp', '--multi_proc', action='store_true', type=bool, default=True,
+    parser.add_argument('-mp', '--multi_proc', action='store_true', default=True,
                         help='Run multiple processes concurrently if true.')
     parser.add_argument('-w', '--num_workers', action='store', type=int, default=-1,
                         help='Number of workers/processes to run in parallel. (-1 to start one per core.')
