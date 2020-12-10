@@ -4,7 +4,7 @@ import rospkg
 
 import argparse
 
-from os import path
+from os import path, getpid
 from time import sleep
 from datetime import datetime
 
@@ -19,7 +19,19 @@ from map_simulator.ros_launcher import ROSLauncher
 def run_exp_n_times(package, launch_file_path, iterations=1, launch_args_dict=None, log_path=None,
                     port=None, monitored_nodes=None):
 
-    for _ in range(iterations):
+    pid = getpid()
+    print("\n" * 2)
+    print("*" * 80)
+    print("<*> STARTED Process {}, Params {}.".format(pid, launch_args_dict["path_err_coll_pfx"]))
+    print("\n" * 2)
+
+    for curr_it in range(iterations):
+        print("\n" * 2)
+        print("=" * 60)
+        print("<*>\tProcess {}, Params {}, Iteration {}/{}.\n\n\n".format(pid, launch_args_dict["path_err_coll_pfx"],
+                                                                          curr_it + 1, iterations))
+        print("\n" * 2)
+
         # Run Launch file
         launch_args_dict["ts"] = datetime.now().strftime('%y%m%d_%H%M%S')
 
@@ -28,6 +40,11 @@ def run_exp_n_times(package, launch_file_path, iterations=1, launch_args_dict=No
         launcher.start(launch_args_dict)
         launcher.spin()
         sleep(1)
+
+    print("\n" * 2)
+    print("*" * 80)
+    print("<*> FINISHED Process {}, Params {}.".format(pid, launch_args_dict["path_err_coll_pfx"]))
+    print("\n" * 2)
 
 
 def list_parse(string, parse_type):
@@ -188,14 +205,10 @@ if __name__ == "__main__":
             procs.append(proc)
 
     if multiproc:
-        for i, proc in enumerate(procs):
-            print("\n\n\nProcess {}".format(i))
-            print(proc.get())
-
         pool.close()
         pool.join()
 
     print("\n" * 10)
     print("*" * 80)
-    print("\tEXPERIMENTS FINISHED RUNNING")
+    print("<*>\tALL EXPERIMENTS FINISHED RUNNING")
     print("*" * 80)
