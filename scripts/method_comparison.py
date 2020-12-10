@@ -194,3 +194,8 @@ if __name__ == "__main__":
 
         pool.close()
         pool.join()
+
+    print("\n" * 10)
+    print("*" * 80)
+    print("\tEXPERIMENTS FINISHED RUNNING")
+    print("*" * 80)
