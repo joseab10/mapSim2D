@@ -49,7 +49,7 @@ if __name__ == "__main__":
     parser.add_argument('-i', '--iterations', action='store', type=int, default=100,
                         help='Number of times to run each experiment.')
     parser.add_argument('-m', '--moves', action='store', type=int_list,
-                        default="20,40,60,80,100,120,140,160,180,200,240,270,300",
+                        default="20,30,40,50,60,70,80,90,100,120,140,160,180,200,240,270,300",
                         help='Comma-separated list of number of movements to run the tests with.')
     parser.add_argument('-f', '--launch_file', action='store', type=str, default=def_launch_file,
                         help='Launch file to execute.')
@@ -87,12 +87,13 @@ if __name__ == "__main__":
     # Variable Launch Arguments (Different for each experiment)
     # All permutations of these settings will be executed, so be wary of that!
     var_args = OrderedDict([
-        #("bag_file", [20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 240, 270, 300]),
+        ("bag_file", [20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 240, 270, 300]),
         #("bag_file", [20, 40, 60, 80, 100]),
         ("bag_file", args.moves),
         ("mm", ["ref", "dec"]),
         ("pw", ["cmh", "ml"]),
-        ("doPoseImprove", [True, False])
+        #("doPoseImprove", [True, False])
+        ("doPoseImprove", [False])
     ])
 
     # Functions for transforming an argument into its final value and label
