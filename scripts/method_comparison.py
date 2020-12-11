@@ -47,8 +47,12 @@ def run_exp_n_times(package, launch_file_path, iterations=1, launch_args_dict=No
     print("\n" * 2)
 
 
+def list_split(string):
+    return filter(None, string.strip().split(','))
+
+
 def list_parse(string, parse_type):
-    return list(map(parse_type, string.strip().split(',')))
+    return list(map(parse_type, list_split(string)))
 
 
 def int_list(string):
@@ -60,7 +64,7 @@ def str_list(string):
 
 
 def bool_list(string):
-    return list_parse(string, bool)
+    return [s.lower() == 'true' for s in list_split(string)]
 
 
 def float_list(string):
