@@ -209,6 +209,9 @@ if __name__ == "__main__":
             procs.append(proc)
 
     if multiproc:
+        for proc in procs:
+            proc.join()
+
         pool.close()
         pool.join()
 
