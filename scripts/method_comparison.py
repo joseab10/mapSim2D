@@ -210,7 +210,7 @@ if __name__ == "__main__":
 
     if multiproc:
         for proc in procs:
-            proc.join()
+            proc.get()
 
         pool.close()
         pool.join()
