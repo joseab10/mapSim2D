@@ -90,8 +90,11 @@ if __name__ == "__main__":
 
                 with open(file_path, 'r') as f:
                     for line in f:
-                        err.append(float(line.split(FS)[-1]))
-                        no_experiments += 1
+                        try:
+                            err.append(float(line.split(FS)[-1]))
+                            no_experiments += 1
+                        except ValueError as e:
+                            print("Warning: File {} contained unparsable line: {}.".format(file_name, repr(line)))
 
                 means.append(np.mean(err))
                 sdevs.append(np.std(err))
@@ -117,6 +120,7 @@ if __name__ == "__main__":
         plt.legend()
         plt.xlabel("No. of mapping scans.")
         plt.ylabel("Error (mean +- stddev)")
+        plt.xticks(move_options, rotation='vertical')
         plt.title(fig_lbl)
         plt.savefig(path.join(out_path, fig_lbl + "_errbar.svg"))
         plt.close()
