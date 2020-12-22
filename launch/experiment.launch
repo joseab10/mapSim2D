@@ -169,7 +169,7 @@
     ###############################################################################################################
     -->
     <group ns="SLAM">
-        <node pkg="gmapping" type="slam_gmapping" name="slam" output="log" if="$(arg do_slam)">
+        <node pkg="gmapping" type="slam_gmapping" name="slam" output="log" if="$(arg do_slam)" required="true">
             <!--
             =========================================================================================================
                 Topic Remaps
