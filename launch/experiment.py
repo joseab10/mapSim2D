@@ -1,11 +1,13 @@
 #! /usr/bin/env python
 
 import os
-from os import path, makedirs
+from os import path
 
 import sys
 import subprocess
 from datetime import datetime
+
+from map_simulator.utils import mkdir_p
 
 
 def get_arg(dic, key, default, add_if_not_in=True, valid_vals=None):
@@ -73,7 +75,7 @@ if __name__ == "__main__":
     # Create path for log files
     log_path = path.join(path_save, "log")
     if not path.exists(log_path):
-        makedirs(log_path)
+        mkdir_p(log_path)
 
     # Create a symlink to the latest experiment
     link_dest = path.join(path_save, "..", "latest")

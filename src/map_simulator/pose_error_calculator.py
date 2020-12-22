@@ -17,7 +17,7 @@ import os.path
 import datetime
 import time
 
-from map_simulator.utils import tf_frames_eq
+from map_simulator.utils import tf_frames_eq, mkdir_p
 from map_simulator.geometry.transform import tf_msg_to_matrix, quaternion_axis_angle
 
 
@@ -95,7 +95,7 @@ class PoseErrorCalculator:
 
         if self._log_error:
             if not os.path.exists(log_dir):
-                os.makedirs(log_dir)
+                mkdir_p(log_dir)
 
             self._init_log()
 

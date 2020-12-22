@@ -4,9 +4,11 @@ import numpy as np
 from scipy.stats import sem
 import matplotlib.pyplot as plt
 
-from os import path, listdir, makedirs
+from os import path, listdir
 
 from itertools import product
+
+from map_simulator.utils import mkdir_p
 
 
 def comma_list(list_string):
@@ -86,7 +88,7 @@ if __name__ == "__main__":
             file_filters[file_filter]['values'] = sorted(list(arg_dict[file_filter]))
 
     if not path.exists(out_path):
-        makedirs(out_path)
+        mkdir_p(out_path)
 
     FS = ","
     LS = "\n"

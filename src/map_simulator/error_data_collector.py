@@ -1,8 +1,9 @@
 import rospy
 
-from os import path, makedirs
+from os import path
 
 from std_msgs.msg import Float64, Bool
+from map_simulator.utils import mkdir_p
 
 
 class ErrorDataCollector(object):
@@ -18,7 +19,7 @@ class ErrorDataCollector(object):
         localization_suffix = rospy.get_param("~localization_suffix", "_loc")
 
         if not path.exists(file_path):
-            makedirs(file_path)
+            mkdir_p(file_path)
 
         filename = path.join(file_path, file_prefix)
         mapping_filename = filename + mapping_suffix

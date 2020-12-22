@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 
 import itertools
 
-from os import path, listdir, makedirs
+from os import path, listdir
+
+from map_simulator.utils import mkdir_p
 
 if __name__ == "__main__":
 
@@ -32,7 +34,7 @@ if __name__ == "__main__":
     out_path = path.expandvars(path.expanduser(args.out_dir))
 
     if not path.exists(out_path):
-        makedirs(out_path)
+        mkdir_p(out_path)
 
     tmp_ext = ".{}".format(args.extension)
     path_files = listdir(data_path)

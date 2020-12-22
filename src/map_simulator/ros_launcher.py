@@ -120,7 +120,10 @@ class ROSLauncher(object):
         """
 
         if self._launch_obj is not None:
-            rosnode.rosnode_cleanup()
+            try:
+                rosnode.rosnode_cleanup()
+            except (rosnode.ROSNodeIOException, rosnode.ROSNodeException) as e:
+                print(e)
             self._launch_obj.shutdown()
 
     def _monitored_nodes_are_dead(self):
@@ -158,7 +161,7 @@ class ROSLauncher(object):
         pm_is_shutdown = self._launch_obj.pm.is_shutdown
         server_is_shutdown = self._launch_obj.server.is_shutdown
         nodes_dead = self._monitored_nodes_are_dead()
-        return not (pm_is_shutdown or server_is_shutdown or len(active_nodes) == 2 or nodes_dead)
+        return not (pm_is_shutdown or server_is_shutdown or len(active_nodes) <= 2 or nodes_dead)
 
     def spin(self):
         """

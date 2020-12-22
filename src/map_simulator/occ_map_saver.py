@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import os
 
-from map_simulator.utils import map_msg_to_numpy
+from map_simulator.utils import map_msg_to_numpy, mkdir_p
 
 
 class OccMapSaver:
@@ -33,7 +33,7 @@ class OccMapSaver:
         save_dir = os.path.normpath(save_dir)
 
         if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+            mkdir_p(save_dir)
 
         self._save_dir = save_dir
 

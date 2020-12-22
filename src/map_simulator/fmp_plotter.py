@@ -28,7 +28,7 @@ from collections import deque
 # Project Libraries
 from map_simulator.map_colorizer import MapColorizer
 from map_simulator.enums import DiscreteStates as DiSt
-from map_simulator.utils import map_msg_to_numpy, map_msg_extent
+from map_simulator.utils import map_msg_to_numpy, map_msg_extent, mkdir_p
 
 
 class FMPPlotter:
@@ -145,7 +145,7 @@ class FMPPlotter:
         # Create save path if not exists
         if self._save_img and fmp_param_sub_required:
             if not os.path.exists(self._save_dir):
-                os.makedirs(self._save_dir)
+                mkdir_p(self._save_dir)
 
         self._busy = False  # Thread lock flag for plot_from_queue
         rospy.Timer(rospy.Duration(1), self._plot_from_queue)
@@ -227,7 +227,7 @@ class FMPPlotter:
                         path = os.path.join(self._save_dir, img_cfg['dir'])
 
                         if not os.path.exists(path):
-                            os.makedirs(path)
+                            mkdir_p(path)
 
                         filename = img_cfg['file_prefix'] + '_s' + str(seq)
                         raw_filename = 'raw_' + filename + '.png'

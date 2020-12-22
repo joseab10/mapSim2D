@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 import rospkg
+import rosnode
 
 import argparse
 

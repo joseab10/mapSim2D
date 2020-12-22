@@ -1,10 +1,12 @@
 import subprocess
 import sys
 import os
-from os import path, makedirs
+from os import path
 import signal
 from time import sleep
 import psutil
+
+from map_simulator.utils import mkdir_p
 
 
 class ROSCore(object):
@@ -45,7 +47,7 @@ class ROSCore(object):
         env = os.environ.copy()
         if self._log_dir != "":
             if not path.exists(self._log_dir):
-                makedirs(self._log_dir)
+                mkdir_p(self._log_dir)
             env['ROS_LOG_DIR'] = self._log_dir
 
         try:
@@ -64,10 +66,11 @@ class ROSCore(object):
         except psutil.NoSuchProcess:
             print("Parent process does not exist.")
 
-        children_processes = parent_process.children(recursive=True)
-        for process in children_processes:
-            print("Trying to kill child: " + str(process))
-            process.send_signal(sig)
+        else:
+            children_processes = parent_process.children(recursive=True)
+            for process in children_processes:
+                print("Trying to kill child: " + str(process))
+                process.send_signal(sig)
 
     def stop(self):
         print("Trying to kill child PIDs of ROSCore pid: " + str(self._pid))
