@@ -15,7 +15,7 @@
     <arg name="do_plots" default="true"
          doc="(bool)[Default: true] Run the fmp_plot and occ_map_saver nodes to save the statistical and occupation plots of the map."/>
     <arg name="do_error" default="true"
-         doc="(bool)[Default: true] Run the pose_error_cald node to save each pose and the relative error of the SLAM corrected pose w.r.t
+         doc="(bool)[Default: true] Run the pose_error_calc node to save each pose and the relative error of the SLAM corrected pose w.r.t
          the ground-truth pose."/>
     <arg name="do_gtmap" default="true"
          doc="(bool)[Default: true] Run the gt_mapping node for generating the Ground-Truth map."/>
@@ -107,8 +107,8 @@
     <arg name="ts" default="880910_052410"
          doc="(string)[Default: 880910_052410] Timestamp to be used for the save directory.
              It should be set to ts:=`date +'%Y%M%D_%h%m%s'`"/>
-    <arg name="pfx_mm" value="$(eval 'dec' if mm_dcy else 'rfl')"/>
-    <arg name="pfx_pw" value="$(eval 'fsm' if pw_fsm else ('ml' if pw_ml else 'cmh'))"/>
+    <arg name="pfx_mm" default="$(eval 'dec' if mm_dcy else 'rfl')"/>
+    <arg name="pfx_pw" default="$(eval 'fsm' if pw_fsm else ('ml' if pw_ml else 'cmh'))"/>
     <arg name="path_prefix" default="$(env HOME)/Desktop/Experiments/IndividualExperiments"
          doc="Main directory where experiment sub-folders will be created" />
     <arg name="path_save"

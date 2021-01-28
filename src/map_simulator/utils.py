@@ -4,6 +4,10 @@ import os
 
 
 def mkdir_p(path):
+
+    if os.path.exists(path):
+        return
+
     try:
         os.makedirs(path)
     except OSError as exc:  # Python >= 2.5

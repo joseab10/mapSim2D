@@ -29,12 +29,14 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--out_dir', action='store', type=str, default=def_out_path,
                         help='Output Directory where histograms will be saved.')
 
+    parser.add_argument('-m', '--max_exps', action='store', type=int, default=0,
+                        help='Maximum number of experiments to take into account.')
+
     args = parser.parse_args()
     data_path = path.expandvars(path.expanduser(args.dir))
     out_path = path.expandvars(path.expanduser(args.out_dir))
 
-    if not path.exists(out_path):
-        mkdir_p(out_path)
+    mkdir_p(out_path)
 
     tmp_ext = ".{}".format(args.extension)
     path_files = listdir(data_path)
@@ -70,7 +72,7 @@ if __name__ == "__main__":
             col_lbl = "{}_{}_{}_{}_{}".format(o2[0], o2[1], o1[0], o1[1], o1[2])
 
             file_means = [col_lbl + "_mean"]
-            file_sdevs = [col_lbl + "_var"]
+            file_sdevs = [col_lbl + "_sdv"]
             file_sems  = [col_lbl + "_sem"]
             file_runs  = [col_lbl + "_runs"]
 
@@ -92,6 +94,9 @@ if __name__ == "__main__":
 
                 with open(file_path, 'r') as f:
                     for line in f:
+                        if args.max_exps > 0 and args.max_exps <= no_experiments:
+                            break
+
                         try:
                             err.append(float(line.split(FS)[-1]))
                             no_experiments += 1
