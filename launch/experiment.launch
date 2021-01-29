@@ -14,10 +14,10 @@
          doc="(bool)[Default: true] Run the OpenSlam Gmapping Node." />
     <arg name="do_plots" default="true"
          doc="(bool)[Default: true] Run the fmp_plot and occ_map_saver nodes to save the statistical and occupation plots of the map."/>
-    <arg name="do_error" default="true"
+    <arg name="do_error" default="false"
          doc="(bool)[Default: true] Run the pose_error_calc node to save each pose and the relative error of the SLAM corrected pose w.r.t
          the ground-truth pose."/>
-    <arg name="do_gtmap" default="true"
+    <arg name="do_gtmap" default="false"
          doc="(bool)[Default: true] Run the gt_mapping node for generating the Ground-Truth map."/>
     <arg name="do_odo" default="true"
          doc="(bool)[Default: true] Run the gt_mapping node for generation the Pure Odometry map."/>
@@ -67,7 +67,7 @@
     <arg name="exp_pfx" default="exp"
          doc="(string)[Default: exp] Prefix for the experiment directory."/>
 
-    <arg name="resolution" default="0.05"
+    <arg name="resolution" default="0.1"
          doc="(float)[Default: 0.05] Map resolution in [m]."/>
 
     <arg name="occ_threshold" default="0.25"
@@ -76,7 +76,7 @@
     <arg name="ocuw" default="0.0"
          doc="(float)[Default: 0.0] Weight of a Uniform Distribution to be added to the measurement likelihoods to avoid overconfidence" />
 
-    <arg name="doPoseImprove" default="true"
+    <arg name="doPoseImprove" default="false"
          doc="(bool)[Default: true] Run scan matching for pose improvement if true."/>
 
     <arg name="publishAvgPose" default="true"
@@ -128,14 +128,10 @@
     <arg name="path_err_coll_pfx" default="err_coll"
          doc="(string)[Default: err_coll] Prefix for the collected error file names." />
 
-    <arg name="bag_file" default="$(arg path_data)/Simulations/Robot_Exp_10Loop_100m1loc.bag"
-         if="$(eval bag.lower() == '10loop')"
+    <arg name="bag_file" default="$(arg path_data)/Freiburg/Campus/fr-campus-20040714.raw.bag"
          doc="(string)[Default: path to either Robot_10Loop or Robot_10Cell bags depending on $bag]
               Explicit path to ROSBag to execute if neither 10Loop nor 10Cell are desired."/>
-    <arg name="bag_file" default="$(arg path_data)/Simulations/Robot_10Cell_noisy_3_2pi_180rays.bag"
-         if="$(eval bag.lower() == '10cell')"
-         doc="(string)[Default: path to either Robot_10Loop or Robot_10Cell bags depending on $bag]
-              Explicit path to ROSBag to execute if neither 10Loop nor 10Cell are desired."/>
+
 
     <!--
     ###############################################################################################################
@@ -204,10 +200,10 @@
                  Map Parameters
                  ____________________________________________________________ -->
             <!-- Initial map size (in metres) -->
-            <param name="xmin" value="-6.0"/> <!-- (float, default -100.0) -->
-            <param name="ymin" value="-6.0"/> <!-- (float, default -100.0) -->
-            <param name="xmax" value="6.0"/>  <!-- (float, default  100.0) -->
-            <param name="ymax" value="6.0"/>  <!-- (float, default  100.0) -->
+            <param name="xmin" value="-100.0"/> <!-- (float, default -100.0) -->
+            <param name="ymin" value="-100.0"/> <!-- (float, default -100.0) -->
+            <param name="xmax" value="100.0"/>  <!-- (float, default  100.0) -->
+            <param name="ymax" value="100.0"/>  <!-- (float, default  100.0) -->
             <!-- Resolution of the map (in metres per occupancy grid block) (float, default 0.05) -->
             <param name="delta" value="$(arg resolution)"/>
 
@@ -219,9 +215,9 @@
             ____________________________________________________________ -->
             <!-- The maximum range of the sensor. If regions with no obstacles within the range of the sensor should appear
                  as free space in the map, set maxUrange < maximum range of the real sensor <= maxRange. (float) -->
-            <param name="maxRange" value="30.0"/>
+            <param name="maxRange" value="81.0"/>
             <!-- The maximum usable range of the laser. A beam is cropped to this value. (float, default 80.0) -->
-            <param name="maxUrange" value="20.0"/>
+            <param name="maxUrange" value="80.0"/>
 
             <!-- ____________________________________________________________
                  Odometry Model Parameters
@@ -262,22 +258,22 @@
             <!-- Minimum score for considering the outcome of the scan matching good. Can avoid jumping pose estimates in
             large open spaces when using laser scanners with limited range (e.g. 5m). Scores go up to 600+, try 50 for example
             when experiencing jumping estimate issues. (float, default 0.0) -->
-            <param name="minimumScore" value="20.0"/>
+            <param name="minimumScore" value="00.0"/>
 
             <!-- ____________________________________________________________
                  Update Parameters
                  ____________________________________________________________ -->
             <!-- Process a scan each time the robot translates this far (float, default 1.0) -->
-            <param name="linearUpdate" value="0.25" />
+            <param name="linearUpdate" value="1.0" />
             <!-- Process a scan each time the robot rotates this far (float, default 0.5) -->
-            <param name="angularUpdate" value="0.02"/>
+            <param name="angularUpdate" value="0.5"/>
             <!-- Process a scan if the last scan processed is older than the update time in seconds. A value less than zero
             will turn time based updates off. (float, default: -1.0) -->
-            <param name="temporalUpdate" value="0.1"/>
+            <param name="temporalUpdate" value="-1"/>
 
             <!-- How long (in seconds) between updates to the map. Lowering this number updates the occupancy grid more
                  often, at the expense of greater computational load. (float, default 5.0) -->
-            <param name="map_update_interval" value="3.0" /> <!-- 0.25"/> -->
+            <param name="map_update_interval" value="5.0" /> <!-- 0.25"/> -->
 
             <!-- How long (in seconds) between transform publications. To disable broadcasting transforms, set to 0.
             (float, default 0.05) -->
@@ -467,14 +463,14 @@
             -->
             <!-- Subscription Remaps -->
             <remap from="/map" to="/SLAM/map" />
-            <remap from="/GT/base_scan" to="/ODO/base_scan"/>
+            <remap from="/GT/base_scan" to="/SLAM/base_scan"/>
             <!-- Publication  Remaps -->
             <remap from="/GT/map" to="/ODO/map"/>
 
             <!-- Parameters -->
             <param name="occ_threshold" value="$(arg occ_threshold)"/>
             <param name="gt_prefix" value="ODO"/>
-            <param name="pose_origin_frame" value="odom"/>
+            <param name="map_frame" value="odom"/>
             <param name="laser_frame" value="laser_link"/>
         </node>
 
