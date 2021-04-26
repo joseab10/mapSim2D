@@ -255,19 +255,6 @@ Time in seconds that the simulation will pause after displaying a movement.
 Time in seconds that the simulation will pause after displaying a measurement.
 
 
-# Ground Truth Mapper
-
-Python script for generating odometry and measurement datasets to test SLAM Algorithms.
-
-## Usage
-
-## Topics
-
-## Parameters
-
-
-
-
 ---
 
-JAB 2020
+JAB 2021
